@@ -1,0 +1,80 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - application/json
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - api.elsevier.com
+      user-agent:
+      - elsevierCoordinateExtraction/0.1.0
+      x-els-apikey:
+      - 8245baedf6a29c85e3e584e516773f85
+    method: GET
+    uri: https://api.elsevier.com/content/search/sciencedirect?count=1&query=TITLE%28fmri%29
+  response:
+    body:
+      string: !!binary |
+        H4sIAAAAAAAAA8xVwU4bMRD9FcsqCKRs1psQSFaKQBUc0kKhadRDK4RcezYZ8Nqu7SVEKP9eeTek
+        jZTSAyBV8sGeZ888Pz/bj9QDd2KWOPCVCp7mj9RY0E00DyZwNX6CaLc7GNDWnxN84C6MtIQHmlO2
+        iWGA0l+Bu+JToDnNNtHPFbhFLHfijAKaE+rgZwU+0BahJ82kCbjSR2gympyf7RWlw/0GjmWbvIQy
+        umxRhfqO5uT7Iz25KXgMB1dBPdlBEcceVFGPZ6vALATr8zTlFtugPNwjuLYwZSqMDqBD2pBIvUDQ
+        AiQ6EOG4Lj1ku8JUOgyz3Z9xH8Oa4E6nHynudAZ1nbCwNT9urULBAxqd3nqj6bL1d5YFupUE/zVN
+        DQ+vxzJ7K5aKv6KW3e6g/yKi1y0KOkTTb7OpMlwmkod4VTqs00tYL+lkE8byurUZY9/o2/icu4BC
+        QWoR0y8sOzzqZwes02MZ67L+swJ7gRLd1mrz+by9IWNdchV5vuSxnAqUQ27xxsub1QPFLSagpTWo
+        Q62lFDlK0AELBEdzeno5yjPWzlh22KRMYs69Tm+/zpr0aYtah77MK6do/lJZagIBg6oP7IANyNmD
+        VcahnpKLcXKOmgsieeCk8jEmFPceBdFQOYMln8ZgcTEeEa65Wnj0TUrhgAcTN3QFARz50CYfjbEl
+        1369AVv9ePLWJ15GAmMu0YQZOG4XhGtJLrUwykwX6zX3RlVlY67DdVCYe3Cnm6brZmu4Nj7q6eoF
+        992jfmcNgpab0MEakgbjg/+Pw4ifARcCvKd5wZWHFrUYF24Tm1dhZlz9PzXd5hK8o2SbUNGzNTQG
+        DeTCaD8z1Rzcb+DM4R35yjWR4Mh7vFV0eb2M7RcAAAD//wMABs+11RIHAAA=
+    headers:
+      allow:
+      - GET
+      cf-cache-status:
+      - DYNAMIC
+      cf-ray:
+      - 996348bd5a836b04-DFW
+      content-encoding:
+      - gzip
+      content-type:
+      - application/json;charset=UTF-8
+      date:
+      - Wed, 29 Oct 2025 14:15:18 GMT
+      server:
+      - cloudflare
+      set-cookie:
+      - __cf_bm=sGM5UGHWed5vPypxU0VEE7m1Qs3sGRaZOtwSaomcfUg-1761747318-1.0.1.1-nHWpY4TazDa6ZjWI_viGscfiNRT29w5E1F_8cZPIROWgBKmMjSq8mA5GzyGT0OTW.nvKyAmskr0fvCjVlGccbFjZRrZ_izVeiWA8WWbjjn0;
+        path=/; expires=Wed, 29-Oct-25 14:45:18 GMT; domain=.elsevier.com; HttpOnly;
+        Secure; SameSite=None
+      tdm-policy:
+      - https://www.elsevier.com/tdm/tdmrep-policy.json
+      tdm-reservation:
+      - '1'
+      vary:
+      - Origin
+      - Access-Control-Request-Method
+      - Access-Control-Request-Headers
+      x-els-apikey:
+      - 8245baedf6a29c85e3e584e516773f85
+      x-els-reqid:
+      - c473cf868449d8df
+      x-els-resourceversion:
+      - default
+      x-els-status:
+      - OK
+      x-els-transid:
+      - c473cf868449d8df
+      x-ratelimit-limit:
+      - '20000'
+      x-ratelimit-remaining:
+      - '19992'
+      x-ratelimit-reset:
+      - '1762312004'
+    status:
+      code: 200
+      message: OK
+version: 1

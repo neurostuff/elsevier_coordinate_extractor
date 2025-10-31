@@ -1,0 +1,55 @@
+[project]
+name = "elsevier-coordinate-extraction"
+version = "0.1.0"
+description = "Search, download, and extract stereotactic coordinates from ScienceDirect articles into NIMADS."
+authors = [
+  { name = "elsevier Coordinate Extraction Team" }
+]
+requires-python = ">=3.9"
+dependencies = [
+  "httpx[http2]>=0.27.0",
+  "python-dotenv>=1.0.1",
+  "lxml>=5.1.0",
+  "pandas>=2.2.0",
+  "numpy>=1.26.0",
+  "scipy>=1.11.0",
+  "pubget @ git+https://github.com/neuroquery/pubget.git@main",
+  "socksio>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.1.0",
+  "pytest-asyncio>=0.23.0",
+  "pytest-recording>=0.13.1",
+  "ruff>=0.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["elsevier_coordinate_extraction*"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = [
+  "tests",
+]
+norecursedirs = [
+  "NIMADS",
+  "pubget",
+]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+extend-exclude = [
+  "pubget",
+  "NIMADS",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

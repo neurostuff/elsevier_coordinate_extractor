@@ -1,0 +1,158 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - application/xml
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - api.elsevier.com
+      user-agent:
+      - elsevierCoordinateExtraction/0.1.0
+      x-els-apikey:
+      - 8245baedf6a29c85e3e584e516773f85
+    method: GET
+    uri: https://api.elsevier.com/content/article/doi/10.1016/j.neucli.2007.12.007?httpAccept=text%2Fxml&view=FULL
+  response:
+    body:
+      string: <service-error><status><statusCode>INVALID_INPUT</statusCode><statusText>View
+        parameter specified in request is not valid</statusText></status></service-error>
+    headers:
+      allow:
+      - GET
+      cf-cache-status:
+      - DYNAMIC
+      cf-ray:
+      - 996bce658c940b80-DFW
+      content-disposition:
+      - inline;filename=f.txt
+      content-length:
+      - '159'
+      content-type:
+      - text/xml;charset=UTF-8
+      date:
+      - Thu, 30 Oct 2025 15:04:39 GMT
+      server:
+      - cloudflare
+      set-cookie:
+      - __cf_bm=61lnGbXz2V3nQYtrkM7Z7ZqpWvO2JIuv.g31hmywxQs-1761836679-1.0.1.1-11VOGMypG4lFCFrId0CvP0HyHIY4N1LBpdPr7nplMlAcxH0e97edYDD7otcQVs2NJn4Jrdhfs8SGG9YhVF8fPBHHWuSRswFNawUECQZc_Rk;
+        path=/; expires=Thu, 30-Oct-25 15:34:39 GMT; domain=.elsevier.com; HttpOnly;
+        Secure; SameSite=None
+      tdm-policy:
+      - https://www.elsevier.com/tdm/tdmrep-policy.json
+      tdm-reservation:
+      - '1'
+      vary:
+      - Origin
+      - Access-Control-Request-Method
+      - Access-Control-Request-Headers
+      x-els-apikey:
+      - 8245baedf6a29c85e3e584e516773f85
+      x-els-reqid:
+      - fd6279ab4922f853
+      x-els-resourceversion:
+      - default
+      x-els-status:
+      - INVALID_INPUT - View parameter specified in request is not valid
+      x-els-transid:
+      - fd6279ab4922f853
+    status:
+      code: 400
+      message: Bad Request
+- request:
+    body: ''
+    headers:
+      accept:
+      - application/xml
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      cookie:
+      - __cf_bm=61lnGbXz2V3nQYtrkM7Z7ZqpWvO2JIuv.g31hmywxQs-1761836679-1.0.1.1-11VOGMypG4lFCFrId0CvP0HyHIY4N1LBpdPr7nplMlAcxH0e97edYDD7otcQVs2NJn4Jrdhfs8SGG9YhVF8fPBHHWuSRswFNawUECQZc_Rk
+      host:
+      - api.elsevier.com
+      user-agent:
+      - elsevierCoordinateExtraction/0.1.0
+      x-els-apikey:
+      - 8245baedf6a29c85e3e584e516773f85
+    method: GET
+    uri: https://api.elsevier.com/content/article/doi/10.1016/j.neucli.2007.12.007?httpAccept=text%2Fxml
+  response:
+    body:
+      string: !!binary |
+        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
+    headers:
+      allow:
+      - GET
+      cf-cache-status:
+      - DYNAMIC
+      cf-ray:
+      - 996bce6ceac50b80-DFW
+      content-disposition:
+      - inline;filename=f.txt
+      content-encoding:
+      - gzip
+      content-type:
+      - text/xml;charset=UTF-8
+      date:
+      - Thu, 30 Oct 2025 15:04:40 GMT
+      last-modified:
+      - Fri, 15 May 2015 04:21:44 GMT
+      server:
+      - cloudflare
+      tdm-policy:
+      - https://www.elsevier.com/tdm/tdmrep-policy.json
+      tdm-reservation:
+      - '1'
+      vary:
+      - Origin
+      - Access-Control-Request-Method
+      - Access-Control-Request-Headers
+      x-els-apikey:
+      - 8245baedf6a29c85e3e584e516773f85
+      x-els-reqid:
+      - f3eabb3c531bae8c
+      x-els-resourceversion:
+      - default
+      x-els-status:
+      - OK
+      x-els-transid:
+      - f3eabb3c531bae8c
+    status:
+      code: 200
+      message: OK
+version: 1
