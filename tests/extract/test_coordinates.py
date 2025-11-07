@@ -15,7 +15,7 @@ from elsevier_coordinate_extraction.extract.coordinates import extract_coordinat
 from elsevier_coordinate_extraction.types import ArticleContent, build_article_content
 
 
-@pytest.fixture(scope="module", params=("doi", "pmid"), ids=("doi", "pmid"))
+@pytest.fixture(scope="function", params=("doi", "pmid"), ids=("doi", "pmid"))
 def downloaded_articles(
     request: pytest.FixtureRequest,
     test_dois: list[str],

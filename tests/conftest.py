@@ -11,6 +11,13 @@ import pytest
 pytest_plugins = ("pytest_asyncio",)
 
 
+def _strip_cookies(response: dict[str, Any]) -> dict[str, Any]:
+    """Remove volatile cookie headers before storing responses."""
+    response.get("headers", {}).pop("Set-Cookie", None)
+    response.get("headers", {}).pop("set-cookie", None)
+    return response
+
+
 @pytest.fixture(scope="session")
 def vcr_config() -> dict[str, Any]:
     """Configure pytest-recording for cassette storage and header scrubbing."""
@@ -19,9 +26,34 @@ def vcr_config() -> dict[str, Any]:
     return {
         "cassette_library_dir": str(cassette_dir),
         "record_mode": os.getenv("PYTEST_RECORDING_MODE", "once"),
-        "filter_headers": ["X-Elsevier-Apikey", "Authorization"],
-        "filter_query_parameters": [("apiKey", "DUMMY")],
+        "filter_headers": [
+            "authorization",
+            "x-api-key",
+            "x-els-apikey",
+            "cookie",
+            "set-cookie",
+            "user-agent",
+        ],
+        "filter_query_parameters": [
+            "apiKey",
+            "apikey",
+            "api_key",
+            "access_token",
+        ],
+        "decode_compressed_response": True,
+        "allow_playback_repeats": True,
+        "before_record_response": _strip_cookies,
     }
+
+
+@pytest.fixture
+def vcr_cassette(vcr: Any, request: pytest.FixtureRequest):
+    """Automatically open a cassette per-test (module/testname)."""
+
+    module = request.node.module.__name__.replace(".", "_")
+    path = Path("auto") / module / f"{request.node.name}.yaml"
+    with vcr.use_cassette(str(path)):
+        yield
 
 
 @pytest.fixture(scope="session")
