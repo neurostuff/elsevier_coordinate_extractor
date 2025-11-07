@@ -157,24 +157,12 @@ async def _download_identifier(
     if payload is None:
         params = {"httpAccept": "text/xml", "view": view_used}
         path = _endpoint_path_for_identifier(identifier, identifier_type)
-        try:
-            response = await client.request(
-                "GET",
-                path,
-                params=params,
-                accept="application/xml",
-            )
-        except httpx.HTTPStatusError as exc:
-            if params.get("view") and exc.response.status_code in {400, 401, 403}:
-                view_used = "STANDARD"
-                response = await client.request(
-                    "GET",
-                    path,
-                    params={"httpAccept": "text/xml"},
-                    accept="application/xml",
-                )
-            else:
-                raise
+        response = await client.request(
+            "GET",
+            path,
+            params=params,
+            accept="application/xml",
+        )
         payload = response.content
         content_type = response.headers.get("content-type", "application/xml")
         metadata.update(
