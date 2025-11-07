@@ -67,12 +67,17 @@ async def download_articles(
     async def _runner() -> list[ArticleContent]:
         results: list[ArticleContent] = []
         for record in records:
-            article = await _download_record(
-                record=record,
-                client=sci_client,
-                cache=cache,
-                cache_namespace=cache_namespace,
-            )
+            try:
+                article = await _download_record(
+                    record=record,
+                    client=sci_client,
+                    cache=cache,
+                    cache_namespace=cache_namespace,
+                )
+            except Exception:
+                continue
+            if article is None:
+                continue
             results.append(article)
         return results
 
@@ -87,7 +92,7 @@ async def _download_record(
     client: ScienceDirectClient,
     cache: Any | None,
     cache_namespace: str,
-) -> ArticleContent:
+) -> ArticleContent | None:
     doi = (record.get("doi") or "").strip()
     pmid = (record.get("pmid") or "").strip()
 
@@ -117,8 +122,11 @@ async def _download_record(
         article.metadata.setdefault("identifier_lookup", dict(record))
         return article
 
-    assert last_error is not None  # Should exist when all attempts fail.
-    raise last_error
+    if last_error is not None and last_error.response.status_code == 404:
+        return None
+    if last_error is not None:
+        raise last_error
+    return None
 
 
 async def _download_identifier(
