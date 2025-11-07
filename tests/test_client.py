@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import time
+
 import httpx
 import pytest
 
@@ -12,9 +14,21 @@ from elsevier_coordinate_extraction.client import ScienceDirectClient
 from elsevier_coordinate_extraction.settings import Settings
 
 
-def _make_test_settings(base_url: str = "https://example.test") -> Settings:
+_WAIT_SENTINEL: object = object()
+
+
+def _make_test_settings(
+    base_url: str = "https://example.test",
+    *,
+    max_wait: float | None | object = _WAIT_SENTINEL,
+) -> Settings:
     """Create a Settings instance tailored for tests."""
     cfg = settings.get_settings()
+    resolved_wait: float | None
+    if max_wait is _WAIT_SENTINEL:
+        resolved_wait = cfg.max_rate_limit_wait
+    else:
+        resolved_wait = max_wait  # type: ignore[assignment]
     return Settings(
         api_key="test-key",
         base_url=base_url,
@@ -26,6 +40,7 @@ def _make_test_settings(base_url: str = "https://example.test") -> Settings:
         http_proxy=None,
         https_proxy=None,
         use_proxy=False,
+        max_rate_limit_wait=resolved_wait,
     )
 
 
@@ -132,3 +147,53 @@ async def test_client_can_disable_proxy(monkeypatch: pytest.MonkeyPatch) -> None
     assert result["ok"] is True
     assert captured_kwargs.get("trust_env") is False
     assert "proxy" not in captured_kwargs
+
+
+@pytest.mark.asyncio()
+async def test_client_retries_within_wait_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Client should retry when the wait duration does not exceed configured maximum."""
+
+    call_count = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            headers = {
+                "Retry-After": "0.05",
+                "X-RateLimit-Reset": str(int(time.time()) + 1),
+            }
+            return httpx.Response(429, headers=headers, json={"error": "limit"}, request=request)
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    transport = httpx.MockTransport(handler)
+    sleep_calls: list[float] = []
+
+    async def stub_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("elsevier_coordinate_extraction.client.asyncio.sleep", stub_sleep)
+
+    async with ScienceDirectClient(_make_test_settings(max_wait=10.0), transport=transport) as client:
+        result = await client.get_json("/quota")
+
+    assert result["ok"] is True
+    assert call_count == 2
+    assert sleep_calls and sleep_calls[0] > 0
+
+
+@pytest.mark.asyncio()
+async def test_client_fails_when_wait_exceeds_threshold() -> None:
+    """A wait duration longer than configured maximum should raise immediately."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        headers = {
+            "Retry-After": "4000",
+            "X-RateLimit-Reset": str(int(time.time()) + 4000),
+        }
+        return httpx.Response(429, headers=headers, json={"error": "limit"}, request=request)
+
+    transport = httpx.MockTransport(handler)
+    async with ScienceDirectClient(_make_test_settings(max_wait=60.0), transport=transport) as client:
+        with pytest.raises(httpx.HTTPStatusError, match="exceeds configured maximum"):
+            await client.get_json("/quota")

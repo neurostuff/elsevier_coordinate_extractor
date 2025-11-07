@@ -127,6 +127,26 @@ class ScienceDirectClient:
                     headers=request_headers,
                 )
             delay = rate_limits.get_retry_delay(response)
+            max_wait = self._settings.max_rate_limit_wait
+            if (
+                delay is not None
+                and response.status_code == 429
+                and max_wait is not None
+                and delay > max_wait
+            ):
+                snapshot = rate_limits.get_rate_limit_snapshot(response)
+                wait_seconds = snapshot.seconds_until_reset() or delay
+                message = (
+                    "Rate limit reset wait "
+                    f"({wait_seconds:g}s) exceeds configured maximum "
+                    f"({max_wait:g}s)."
+                )
+                raise httpx.HTTPStatusError(
+                    message
+                    + " Increase ELSEVIER_MAX_RATE_LIMIT_WAIT_SECONDS to allow longer waits.",
+                    request=response.request,
+                    response=response,
+                )
             if (
                 delay is not None
                 and response.status_code in {429, 500, 503}

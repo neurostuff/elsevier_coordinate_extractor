@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 from lxml import etree
 
+from elsevier_coordinate_extraction import rate_limits
 from elsevier_coordinate_extraction.client import ScienceDirectClient
 from urllib.parse import urlparse
 
@@ -74,6 +75,8 @@ async def download_articles(
                     cache=cache,
                     cache_namespace=cache_namespace,
                 )
+            except httpx.HTTPError:
+                raise
             except Exception:
                 continue
             if article is None:
@@ -154,17 +157,36 @@ async def _download_identifier(
             metadata["transport"] = "cache"
 
     view_used = initial_view
+    response_for_metadata: httpx.Response | None = None
     if payload is None:
-        params = {"httpAccept": "text/xml", "view": view_used}
         path = _endpoint_path_for_identifier(identifier, identifier_type)
-        response = await client.request(
-            "GET",
-            path,
-            params=params,
-            accept="application/xml",
-        )
+        params = {"httpAccept": "text/xml", "view": view_used}
+        try:
+            response = await client.request(
+                "GET",
+                path,
+                params=params,
+                accept="application/xml",
+            )
+        except httpx.HTTPStatusError as exc:
+            if (
+                view_used == "FULL"
+                and exc.response.status_code == 400
+                and _is_invalid_view_error(exc.response)
+            ):
+                message = (
+                    "ScienceDirect rejected FULL view for "
+                    f"{identifier_type}:{identifier}. Ensure your credentials grant full-text access."
+                )
+                raise httpx.HTTPStatusError(
+                    message,
+                    request=exc.request,
+                    response=exc.response,
+                ) from exc
+            raise
         payload = response.content
         content_type = response.headers.get("content-type", "application/xml")
+        response_for_metadata = response
         metadata.update(
             {
                 "transport": response.request.url.scheme,
@@ -176,14 +198,29 @@ async def _download_identifier(
                 "identifier_type": identifier_type,
             }
         )
+        snapshot = rate_limits.get_rate_limit_snapshot(response)
+        metadata.update(snapshot.to_metadata())
         if cache is not None:
             await cache.set(cache_namespace, cache_key, payload)
 
     full_text = _payload_contains_full_text(payload)
     inferred_view = "FULL" if full_text else "STANDARD"
-    metadata.setdefault("view_requested", initial_view)
-    metadata.setdefault("view_obtained", inferred_view)
-    metadata.setdefault("view", metadata.get("view", inferred_view))
+    if initial_view == "FULL" and not full_text:
+        message = (
+            "ScienceDirect returned metadata-only payload when FULL view was requested. "
+            "Confirm your entitlements allow full-text retrieval."
+        )
+        if response_for_metadata is not None:
+            raise httpx.HTTPStatusError(
+                message,
+                request=response_for_metadata.request,
+                response=response_for_metadata,
+            )
+        raise RuntimeError(message + " Cached payload violates requirement.")
+
+    metadata["view_requested"] = metadata.get("view_requested", initial_view)
+    metadata["view_obtained"] = inferred_view
+    metadata["view"] = inferred_view
     metadata["full_text_retrieved"] = full_text
 
     pii = _extract_pii(payload)
@@ -343,3 +380,16 @@ def _guess_cdn_url(api_url: str, extension: str | None) -> str | None:
         else:
             filename = f"{filename}.{extension}"
     return f"{_CDN_BASE}/{filename}"
+
+
+def _is_invalid_view_error(response: httpx.Response) -> bool:
+    """Detect Elsevier errors indicating the requested view is unsupported."""
+
+    status_header = response.headers.get("X-ELS-Status", "").lower()
+    if "view" in status_header and "invalid" in status_header:
+        return True
+    try:
+        body_text = response.text.lower()
+    except Exception:  # pragma: no cover - defensive fallback
+        return False
+    return "view" in body_text and "not valid" in body_text

@@ -11,7 +11,27 @@ import pytest
 from elsevier_coordinate_extraction import settings
 from elsevier_coordinate_extraction.client import ScienceDirectClient
 from elsevier_coordinate_extraction.download.api import download_articles
+from elsevier_coordinate_extraction.settings import Settings
 from elsevier_coordinate_extraction.types import ArticleContent
+
+
+def _test_settings() -> Settings:
+    """Return a Settings copy that disables proxies for mock transports."""
+
+    cfg = settings.get_settings()
+    return Settings(
+        api_key=cfg.api_key,
+        base_url=cfg.base_url,
+        timeout=cfg.timeout,
+        concurrency=cfg.concurrency,
+        cache_dir=cfg.cache_dir,
+        user_agent=cfg.user_agent,
+        insttoken=cfg.insttoken,
+        http_proxy=None,
+        https_proxy=None,
+        use_proxy=False,
+        max_rate_limit_wait=cfg.max_rate_limit_wait,
+    )
 
 
 @pytest.mark.asyncio()
@@ -34,23 +54,61 @@ async def test_download_single_article_xml(test_dois: Sequence[str]) -> None:
 
 
 @pytest.mark.asyncio()
-@pytest.mark.vcr()
 async def test_download_marks_truncated_full_text() -> None:
-    """Some DOIs only return metadata even when FULL view is requested."""
+    """When the payload lacks body content we should mark the view as STANDARD."""
+
     doi = "10.1016/j.neucli.2007.12.007"
-    cfg = settings.get_settings()
-    async with ScienceDirectClient(cfg) as client:
-        articles = await download_articles([{"doi": doi}], client=client)
+    payload = b"""
+    <article xmlns=\"http://www.elsevier.com/xml/svapi/article/dtd\" xmlns:ce=\"http://www.elsevier.com/xml/common/dtd\">
+      <item-info>
+        <pii>S0987-7053(08)00019-1</pii>
+        <doi>10.1016/j.neucli.2007.12.007</doi>
+      </item-info>
+    </article>
+    """.strip()
 
-    assert len(articles) == 1
-    article = articles[0]
-    metadata = article.metadata
+    captured_requests: list[httpx.Request] = []
 
-    assert metadata.get("view_requested") == "FULL"
-    assert metadata.get("view_obtained") == "STANDARD"
-    assert metadata.get("full_text_retrieved") is False
-    # Ensure we still captured identifying information.
-    assert metadata.get("pii") == "S0987-7053(08)00019-1"
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request)
+        assert request.url.path == f"/content/article/doi/{doi}"
+        assert request.headers.get("Accept") == "application/xml"
+        assert request.url.params.get("view") == "FULL"
+        return httpx.Response(200, content=payload, headers={"content-type": "application/xml"}, request=request)
+
+    cfg = _test_settings()
+    transport = httpx.MockTransport(handler)
+    async with ScienceDirectClient(cfg, transport=transport) as client:
+        with pytest.raises(httpx.HTTPStatusError, match="metadata-only payload"):
+            await download_articles([{"doi": doi}], client=client)
+
+    assert len(captured_requests) == 1
+
+
+@pytest.mark.asyncio()
+async def test_download_errors_when_full_view_invalid(test_dois: Sequence[str]) -> None:
+    """Client should raise if Elsevier rejects FULL view requests."""
+
+    doi = test_dois[0]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        assert params.get("view") == "FULL"
+        return httpx.Response(
+            400,
+            text="<service-error>View parameter specified in request is not valid</service-error>",
+            headers={
+                "content-type": "text/xml",
+                "X-ELS-Status": "INVALID_INPUT - View parameter specified in request is not valid",
+            },
+            request=request,
+        )
+
+    cfg = _test_settings()
+    transport = httpx.MockTransport(handler)
+    async with ScienceDirectClient(cfg, transport=transport) as client:
+        with pytest.raises(httpx.HTTPStatusError, match="rejected FULL view"):
+            await download_articles([{"doi": doi}], client=client)
 
 
 @pytest.mark.asyncio()
@@ -72,7 +130,11 @@ async def test_download_uses_cache(tmp_path: Path, test_dois: Sequence[str]) -> 
             self.data[key] = data
 
     stub_cache = StubCache()
-    cached_payload = b"<xml>cached</xml>"
+    cached_payload = b"""
+    <article xmlns=\"http://www.elsevier.com/xml/svapi/article/dtd\" xmlns:ce=\"http://www.elsevier.com/xml/common/dtd\">
+      <ce:body><ce:para>cached</ce:para></ce:body>
+    </article>
+    """.strip()
     cached_key = f"doi:{test_dois[0]}"
     stub_cache.data[cached_key] = cached_payload
 
@@ -100,11 +162,12 @@ async def test_download_article_by_pmid(sample_test_pmids: Sequence[str]) -> Non
     pmid = sample_test_pmids[0]
     doi = "10.1016/j.stubbed.000001"
     payload = f"""
-    <article>
+    <article xmlns=\"http://www.elsevier.com/xml/svapi/article/dtd\" xmlns:ce=\"http://www.elsevier.com/xml/common/dtd\">
       <item-info>
         <doi>{doi}</doi>
         <pii>S105381192400679X</pii>
       </item-info>
+      <ce:body><ce:para>full text</ce:para></ce:body>
     </article>
     """.encode("utf-8")
 
@@ -135,7 +198,12 @@ async def test_download_article_by_pmid(sample_test_pmids: Sequence[str]) -> Non
             return httpx.Response(
                 200,
                 content=payload,
-                headers={"content-type": "application/xml"},
+                headers={
+                    "content-type": "application/xml",
+                    "X-RateLimit-Limit": "100",
+                    "X-RateLimit-Remaining": "99",
+                    "X-RateLimit-Reset": "1234567891",
+                },
                 request=request,
             )
 
@@ -149,3 +217,6 @@ async def test_download_article_by_pmid(sample_test_pmids: Sequence[str]) -> Non
     assert article.metadata["identifier_type"] == "pmid"
     assert article.metadata.get("doi") == doi
     assert article.metadata.get("pii") == "S105381192400679X"
+    assert article.metadata.get("rate_limit_limit") == 100
+    assert article.metadata.get("rate_limit_remaining") == 99
+    assert article.metadata.get("rate_limit_reset_epoch") == 1234567891.0

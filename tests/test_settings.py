@@ -18,6 +18,7 @@ def test_get_settings_reads_environment(
     monkeypatch.delenv("ELSEVIER_INSTTOKEN", raising=False)
     monkeypatch.delenv("ELSEVIER_HTTP_PROXY", raising=False)
     monkeypatch.delenv("ELSEVIER_HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("ELSEVIER_USE_PROXY", raising=False)
     empty_env = tmp_path / "blank.env"
     empty_env.write_text("")
     monkeypatch.setenv("ELSEVIER_DOTENV_PATH", str(empty_env))
@@ -65,3 +66,27 @@ def test_use_proxy_flag_disables_proxies(monkeypatch: pytest.MonkeyPatch) -> Non
     cfg = settings.get_settings(force_reload=True)
     assert cfg.http_proxy == "socks5://localhost:1080"
     assert cfg.use_proxy is False
+
+
+def test_max_rate_limit_wait_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The max wait threshold should be configurable via environment variable."""
+
+    monkeypatch.setenv("ELSEVIER_API_KEY", "unit-test-key")
+    blank_env = tmp_path / "blank.env"
+    blank_env.write_text("")
+    monkeypatch.setenv("ELSEVIER_DOTENV_PATH", str(blank_env))
+    monkeypatch.setenv("ELSEVIER_MAX_RATE_LIMIT_WAIT_SECONDS", "120")
+    cfg = settings.get_settings(force_reload=True)
+    assert cfg.max_rate_limit_wait == 120.0
+
+
+def test_max_rate_limit_wait_unlimited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Special values should allow disabling the wait threshold entirely."""
+
+    monkeypatch.setenv("ELSEVIER_API_KEY", "unit-test-key")
+    blank_env = tmp_path / "blank.env"
+    blank_env.write_text("")
+    monkeypatch.setenv("ELSEVIER_DOTENV_PATH", str(blank_env))
+    monkeypatch.setenv("ELSEVIER_MAX_RATE_LIMIT_WAIT_SECONDS", "none")
+    cfg = settings.get_settings(force_reload=True)
+    assert cfg.max_rate_limit_wait is None

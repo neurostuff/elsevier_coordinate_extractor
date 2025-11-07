@@ -14,6 +14,7 @@ _DEFAULT_TIMEOUT: Final[float] = 30.0
 _DEFAULT_CONCURRENCY: Final[int] = 4
 _DEFAULT_CACHE_DIR: Final[str] = ".elsevier_cache"
 _DEFAULT_USER_AGENT: Final[str] = "elsevierCoordinateExtraction/0.1.0"
+_DEFAULT_MAX_RATE_LIMIT_WAIT: Final[float] = 3600.0  # 1 hour
 
 _CACHED_SETTINGS: Settings | None = None
 
@@ -32,6 +33,7 @@ class Settings:
     http_proxy: str | None
     https_proxy: str | None
     use_proxy: bool
+    max_rate_limit_wait: float | None
 
 
 _TRUE_VALUES: Final[set[str]] = {"1", "true", "yes", "on"}
@@ -86,6 +88,16 @@ def get_settings(*, force_reload: bool = False) -> Settings:
         default=default_use_proxy,
     )
 
+    max_wait_raw = os.getenv("ELSEVIER_MAX_RATE_LIMIT_WAIT_SECONDS")
+    if max_wait_raw is None or not max_wait_raw.strip():
+        max_rate_limit_wait: float | None = _DEFAULT_MAX_RATE_LIMIT_WAIT
+    else:
+        normalized = max_wait_raw.strip().lower()
+        if normalized in {"none", "infinite", "inf", "unlimited"}:
+            max_rate_limit_wait = None
+        else:
+            max_rate_limit_wait = max(float(max_wait_raw), 0.0)
+
     _CACHED_SETTINGS = Settings(
         api_key=api_key,
         base_url=base_url,
@@ -97,5 +109,6 @@ def get_settings(*, force_reload: bool = False) -> Settings:
         http_proxy=http_proxy,
         https_proxy=https_proxy,
         use_proxy=use_proxy,
+        max_rate_limit_wait=max_rate_limit_wait,
     )
     return _CACHED_SETTINGS
