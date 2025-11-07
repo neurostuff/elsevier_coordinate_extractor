@@ -41,6 +41,7 @@ def _make_test_settings(
         https_proxy=None,
         use_proxy=False,
         max_rate_limit_wait=resolved_wait,
+        extraction_workers=cfg.extraction_workers,
     )
 
 

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any, Tuple
 
+import os
 import pandas as pd
 from lxml import etree
 from pubget._coordinate_space import _neurosynth_guess_space
@@ -12,58 +14,85 @@ from pubget._coordinates import _extract_coordinates_from_table
 
 from elsevier_coordinate_extraction.table_extraction import extract_tables_from_article
 from elsevier_coordinate_extraction.types import ArticleContent, TableMetadata
+from elsevier_coordinate_extraction import settings
 
 
 def extract_coordinates(articles: Iterable[ArticleContent]) -> dict:
     """Extract coordinate tables from the supplied articles."""
 
-    studies: list[dict[str, Any]] = []
-    for article in articles:
-        analyses: list[dict[str, Any]] = []
-        tables = extract_tables_from_article(article.payload)
-        if not tables:
-            tables = _manual_extract_tables(article.payload)
-        article_text: str | None = None
-        for metadata, df in tables:
-            meta_text = _metadata_text(metadata)
-            coords = _extract_coordinates_from_dataframe(df, meta_text.lower())
-            if not coords:
-                continue
-            header_text = " ".join(str(col).lower() for col in df.columns)
-            space = _heuristic_space(header_text, meta_text)
-            if space is None:
-                if article_text is None:
-                    article_text = _article_text(article.payload)
-                guessed = _neurosynth_guess_space(article_text)
-                if guessed != "UNKNOWN":
-                    space = guessed
-            analysis_metadata = {
-                "table_label": metadata.label,
-                "table_id": metadata.identifier,
-                "raw_table_xml": metadata.raw_xml,
+    article_list = list(articles)
+    if not article_list:
+        return {"studyset": {"studies": []}}
+
+    cfg = settings.get_settings()
+    user_workers = cfg.extraction_workers
+    if user_workers <= 0:
+        worker_count = min(len(article_list), max(os.cpu_count() or 1, 1))
+    else:
+        worker_count = min(len(article_list), user_workers)
+    if worker_count == 1:
+        studies = [_build_study(article) for article in article_list]
+    else:
+        indexed_results: list[tuple[int, dict[str, Any]]] = []
+        with ProcessPoolExecutor(max_workers=worker_count) as pool:
+            future_map = {
+                pool.submit(_build_study, article): idx
+                for idx, article in enumerate(article_list)
             }
-            points = [
-                {
-                    "coordinates": triplet,
-                    "space": space,
-                }
-                for triplet in coords
-            ]
-            if not points:
-                continue
-            analysis_name = _analysis_name(metadata)
-            analyses.append(
-                {"name": analysis_name, "points": points, "metadata": analysis_metadata}
-            )
-        study_metadata = dict(article.metadata)
-        study: dict[str, Any] = {
-            "doi": article.doi,
-            "analyses": analyses,
-            "metadata": study_metadata,
-        }
-        studies.append(study)
+            for future in as_completed(future_map):
+                idx = future_map[future]
+                indexed_results.append((idx, future.result()))
+        indexed_results.sort(key=lambda pair: pair[0])
+        studies = [study for _, study in indexed_results]
 
     return {"studyset": {"studies": studies}}
+
+
+def _build_study(article: ArticleContent) -> dict[str, Any]:
+    """Process a single article into a study representation."""
+
+    analyses: list[dict[str, Any]] = []
+    tables = extract_tables_from_article(article.payload)
+    if not tables:
+        tables = _manual_extract_tables(article.payload)
+    article_text: str | None = None
+    for metadata, df in tables:
+        meta_text = _metadata_text(metadata)
+        coords = _extract_coordinates_from_dataframe(df, meta_text.lower())
+        if not coords:
+            continue
+        header_text = " ".join(str(col).lower() for col in df.columns)
+        space = _heuristic_space(header_text, meta_text)
+        if space is None:
+            if article_text is None:
+                article_text = _article_text(article.payload)
+            guessed = _neurosynth_guess_space(article_text)
+            if guessed != "UNKNOWN":
+                space = guessed
+        analysis_metadata = {
+            "table_label": metadata.label,
+            "table_id": metadata.identifier,
+            "raw_table_xml": metadata.raw_xml,
+        }
+        points = [
+            {
+                "coordinates": triplet,
+                "space": space,
+            }
+            for triplet in coords
+        ]
+        if not points:
+            continue
+        analysis_name = _analysis_name(metadata)
+        analyses.append(
+            {"name": analysis_name, "points": points, "metadata": analysis_metadata}
+        )
+    study_metadata = dict(article.metadata)
+    return {
+        "doi": article.doi,
+        "analyses": analyses,
+        "metadata": study_metadata,
+    }
 
 
 def _heuristic_space(header_text: str, meta_text: str) -> str | None:
@@ -395,4 +424,3 @@ def _extract_numbers(text: str) -> list[float]:
 
     matches = re.findall(r"[-+]?\d+(?:\.\d+)?", text.replace("−", "-"))
     return [float(match) for match in matches]
-

@@ -27,6 +27,7 @@ def test_get_settings_reads_environment(
     assert cfg_a.api_key == "unit-test-key"
     assert cfg_a.insttoken is None
     assert cfg_a.use_proxy is False
+    assert cfg_a.extraction_workers == 0
     assert cfg_a is cfg_b
 
 
@@ -66,6 +67,7 @@ def test_use_proxy_flag_disables_proxies(monkeypatch: pytest.MonkeyPatch) -> Non
     cfg = settings.get_settings(force_reload=True)
     assert cfg.http_proxy == "socks5://localhost:1080"
     assert cfg.use_proxy is False
+    assert cfg.extraction_workers == 0
 
 
 def test_max_rate_limit_wait_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -76,8 +78,10 @@ def test_max_rate_limit_wait_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     blank_env.write_text("")
     monkeypatch.setenv("ELSEVIER_DOTENV_PATH", str(blank_env))
     monkeypatch.setenv("ELSEVIER_MAX_RATE_LIMIT_WAIT_SECONDS", "120")
+    monkeypatch.setenv("ELSEVIER_EXTRACTION_WORKERS", "8")
     cfg = settings.get_settings(force_reload=True)
     assert cfg.max_rate_limit_wait == 120.0
+    assert cfg.extraction_workers == 8
 
 
 def test_max_rate_limit_wait_unlimited(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

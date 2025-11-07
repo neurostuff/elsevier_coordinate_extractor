@@ -15,6 +15,7 @@ _DEFAULT_CONCURRENCY: Final[int] = 4
 _DEFAULT_CACHE_DIR: Final[str] = ".elsevier_cache"
 _DEFAULT_USER_AGENT: Final[str] = "elsevierCoordinateExtraction/0.1.0"
 _DEFAULT_MAX_RATE_LIMIT_WAIT: Final[float] = 3600.0  # 1 hour
+_DEFAULT_EXTRACTION_WORKERS: Final[int] = 0
 
 _CACHED_SETTINGS: Settings | None = None
 
@@ -34,6 +35,7 @@ class Settings:
     https_proxy: str | None
     use_proxy: bool
     max_rate_limit_wait: float | None
+    extraction_workers: int
 
 
 _TRUE_VALUES: Final[set[str]] = {"1", "true", "yes", "on"}
@@ -110,5 +112,6 @@ def get_settings(*, force_reload: bool = False) -> Settings:
         https_proxy=https_proxy,
         use_proxy=use_proxy,
         max_rate_limit_wait=max_rate_limit_wait,
+        extraction_workers=int(os.getenv("ELSEVIER_EXTRACTION_WORKERS", _DEFAULT_EXTRACTION_WORKERS)),
     )
     return _CACHED_SETTINGS
