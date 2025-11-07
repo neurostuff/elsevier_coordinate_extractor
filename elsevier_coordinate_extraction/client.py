@@ -91,15 +91,20 @@ class ScienceDirectClient:
         if self._settings.insttoken:
             headers["X-ELS-Insttoken"] = self._settings.insttoken
         timeout = httpx.Timeout(self._settings.timeout)
-        proxy_value = self._settings.https_proxy or self._settings.http_proxy
-        self._client = httpx.AsyncClient(
-            base_url=self._settings.base_url,
-            timeout=timeout,
-            headers=headers,
-            transport=self._transport,
-            http2=True,
-            proxy=proxy_value,
-        )
+        client_kwargs: dict[str, Any] = {
+            "base_url": self._settings.base_url,
+            "timeout": timeout,
+            "headers": headers,
+            "transport": self._transport,
+            "http2": True,
+        }
+        if self._settings.use_proxy:
+            proxy_value = self._settings.https_proxy or self._settings.http_proxy
+            if proxy_value:
+                client_kwargs["proxy"] = proxy_value
+        else:
+            client_kwargs["trust_env"] = False
+        self._client = httpx.AsyncClient(**client_kwargs)
 
     async def _request(
         self,

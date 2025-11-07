@@ -25,6 +25,7 @@ def _make_test_settings(base_url: str = "https://example.test") -> Settings:
         insttoken=None,
         http_proxy=None,
         https_proxy=None,
+        use_proxy=False,
     )
 
 
@@ -88,3 +89,46 @@ async def test_client_fetches_search_results() -> None:
     if entries:
         first = entries[0]
         assert "dc:title" in first
+
+
+@pytest.mark.asyncio()
+async def test_client_can_disable_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When proxy usage is disabled, trust_env should be False and no proxy set."""
+
+    captured_kwargs: dict[str, Any] = {}
+
+    class DummyAsyncClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_kwargs.update(kwargs)
+
+        async def aclose(self) -> None:
+            return None
+
+        async def request(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: dict[str, Any] | None = None,
+            headers: dict[str, str] | None = None,
+        ) -> httpx.Response:
+            request = httpx.Request(
+                method,
+                f"https://example.test{path}",
+                params=params,
+                headers=headers,
+            )
+            return httpx.Response(200, json={"ok": True}, request=request)
+
+    monkeypatch.setenv("HTTP_PROXY", "socks5://localhost:1080")
+    monkeypatch.setenv("HTTPS_PROXY", "socks5://localhost:1080")
+    monkeypatch.setattr(
+        "elsevier_coordinate_extraction.client.httpx.AsyncClient",
+        DummyAsyncClient,
+    )
+
+    async with ScienceDirectClient(_make_test_settings()) as client:
+        result = await client.get_json("/ping")
+    assert result["ok"] is True
+    assert captured_kwargs.get("trust_env") is False
+    assert "proxy" not in captured_kwargs

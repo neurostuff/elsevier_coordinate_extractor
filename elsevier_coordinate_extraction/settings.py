@@ -31,6 +31,23 @@ class Settings:
     insttoken: str | None
     http_proxy: str | None
     https_proxy: str | None
+    use_proxy: bool
+
+
+_TRUE_VALUES: Final[set[str]] = {"1", "true", "yes", "on"}
+_FALSE_VALUES: Final[set[str]] = {"0", "false", "no", "off"}
+
+
+def _coerce_bool(value: str | None, *, default: bool) -> bool:
+    """Convert common textual boolean representations to bool."""
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in _TRUE_VALUES:
+        return True
+    if normalized in _FALSE_VALUES:
+        return False
+    return default
 
 
 def get_settings(*, force_reload: bool = False) -> Settings:
@@ -63,6 +80,11 @@ def get_settings(*, force_reload: bool = False) -> Settings:
     insttoken = os.getenv("ELSEVIER_INSTTOKEN")
     http_proxy = os.getenv("ELSEVIER_HTTP_PROXY")
     https_proxy = os.getenv("ELSEVIER_HTTPS_PROXY")
+    default_use_proxy = bool(http_proxy or https_proxy)
+    use_proxy = _coerce_bool(
+        os.getenv("ELSEVIER_USE_PROXY"),
+        default=default_use_proxy,
+    )
 
     _CACHED_SETTINGS = Settings(
         api_key=api_key,
@@ -74,5 +96,6 @@ def get_settings(*, force_reload: bool = False) -> Settings:
         insttoken=insttoken,
         http_proxy=http_proxy,
         https_proxy=https_proxy,
+        use_proxy=use_proxy,
     )
     return _CACHED_SETTINGS
