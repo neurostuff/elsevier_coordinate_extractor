@@ -3,7 +3,8 @@
     xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
     xmlns:ce="http://www.elsevier.com/xml/common/dtd"
     xmlns:cals="http://www.elsevier.com/xml/common/cals/dtd"
-    exclude-result-prefixes="ce cals">
+    xmlns:tb="http://www.elsevier.com/xml/common/table/dtd"
+    exclude-result-prefixes="ce cals tb">
 
   <xsl:output method="xml" indent="no" encoding="UTF-8"/>
   <xsl:strip-space elements="*"/>
@@ -36,43 +37,43 @@
       </original-table>
       <transformed-table>
         <table>
-          <xsl:apply-templates select="cals:tgroup" mode="html"/>
+          <xsl:apply-templates select="cals:tgroup | ce:tgroup | tb:tgroup" mode="html"/>
         </table>
       </transformed-table>
     </extracted-table>
   </xsl:template>
 
-  <xsl:template match="cals:tgroup" mode="html">
-    <xsl:apply-templates select="cals:thead" mode="html"/>
-    <xsl:apply-templates select="cals:tbody" mode="html"/>
-    <xsl:apply-templates select="cals:tfoot" mode="html"/>
+  <xsl:template match="cals:tgroup | ce:tgroup | tb:tgroup" mode="html">
+    <xsl:apply-templates select="cals:thead | ce:thead | tb:thead" mode="html"/>
+    <xsl:apply-templates select="cals:tbody | ce:tbody | tb:tbody" mode="html"/>
+    <xsl:apply-templates select="cals:tfoot | ce:tfoot | tb:tfoot" mode="html"/>
   </xsl:template>
 
-  <xsl:template match="cals:thead" mode="html">
+  <xsl:template match="cals:thead | ce:thead | tb:thead" mode="html">
     <thead>
-      <xsl:apply-templates select="cals:row" mode="html"/>
+      <xsl:apply-templates select="cals:row | ce:row | tb:row" mode="html"/>
     </thead>
   </xsl:template>
 
-  <xsl:template match="cals:tbody" mode="html">
+  <xsl:template match="cals:tbody | ce:tbody | tb:tbody" mode="html">
     <tbody>
-      <xsl:apply-templates select="cals:row" mode="html"/>
+      <xsl:apply-templates select="cals:row | ce:row | tb:row" mode="html"/>
     </tbody>
   </xsl:template>
 
-  <xsl:template match="cals:tfoot" mode="html">
+  <xsl:template match="cals:tfoot | ce:tfoot | tb:tfoot" mode="html">
     <tfoot>
-      <xsl:apply-templates select="cals:row" mode="html"/>
+      <xsl:apply-templates select="cals:row | ce:row | tb:row" mode="html"/>
     </tfoot>
   </xsl:template>
 
-  <xsl:template match="cals:row" mode="html">
+  <xsl:template match="cals:row | ce:row | tb:row" mode="html">
     <tr>
-      <xsl:apply-templates select="cals:entry" mode="html"/>
+      <xsl:apply-templates select="cals:entry | ce:entry | tb:entry" mode="html"/>
     </tr>
   </xsl:template>
 
-  <xsl:template match="cals:entry" mode="html">
+  <xsl:template match="cals:entry | ce:entry | tb:entry" mode="html">
     <xsl:variable name="namest" select="@namest"/>
     <xsl:variable name="nameend" select="@nameend"/>
     <xsl:variable name="morerows" select="@morerows"/>
