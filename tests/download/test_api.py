@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -221,3 +222,80 @@ async def test_download_article_by_pmid(sample_test_pmids: Sequence[str]) -> Non
     assert article.metadata.get("rate_limit_limit") == 100
     assert article.metadata.get("rate_limit_remaining") == 99
     assert article.metadata.get("rate_limit_reset_epoch") == 1234567891.0
+
+
+@pytest.mark.asyncio()
+async def test_download_progress_callback_invoked_for_each_record(test_dois: Sequence[str]) -> None:
+    """Progress callback fires for every successfully downloaded record."""
+
+    cfg = _test_settings()
+    records = [{"doi": test_dois[0]}, {"doi": test_dois[1]}]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        doi = request.url.path.rsplit("/", 1)[-1]
+        payload = f"""
+        <article xmlns="http://www.elsevier.com/xml/svapi/article/dtd" xmlns:ce="http://www.elsevier.com/xml/common/dtd">
+          <item-info>
+            <doi>{doi}</doi>
+            <pii>S105381192400679X</pii>
+          </item-info>
+          <ce:body><ce:para>{doi}</ce:para></ce:body>
+        </article>
+        """.encode("utf-8")
+        return httpx.Response(
+            200,
+            content=payload,
+            headers={"content-type": "application/xml"},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    progress_calls: list[tuple[dict[str, str], ArticleContent | None, BaseException | None]] = []
+
+    def progress_cb(
+        record: dict[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> None:
+        progress_calls.append((record, article, error))
+
+    async with ScienceDirectClient(cfg, transport=transport) as client:
+        articles = await download_articles(records, client=client, progress_callback=progress_cb)
+
+    assert len(articles) == len(records)
+    assert len(progress_calls) == len(records)
+    assert [call[0]["doi"] for call in progress_calls] == [record["doi"] for record in records]
+    assert all(call[1] is not None for call in progress_calls)
+    assert all(call[2] is None for call in progress_calls)
+
+
+@pytest.mark.asyncio()
+async def test_download_progress_callback_receives_errors(test_dois: Sequence[str]) -> None:
+    """Progress callback should receive exceptions before they propagate."""
+
+    cfg = _test_settings()
+    doi = test_dois[0]
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("simulated timeout")
+
+    transport = httpx.MockTransport(handler)
+    progress_calls: list[tuple[dict[str, str], ArticleContent | None, BaseException | None]] = []
+
+    async def progress_cb(
+        record: dict[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> None:
+        await asyncio.sleep(0)
+        progress_calls.append((record, article, error))
+
+    with pytest.raises(httpx.TimeoutException):
+        async with ScienceDirectClient(cfg, transport=transport) as client:
+            await download_articles([{"doi": doi}], client=client, progress_callback=progress_cb)
+
+    assert len(progress_calls) == 1
+    record, article, error = progress_calls[0]
+    assert record["doi"] == doi
+    assert article is None
+    assert isinstance(error, httpx.TimeoutException)

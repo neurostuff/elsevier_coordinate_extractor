@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import re
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Awaitable, Mapping, Sequence
+from typing import Any, Protocol
 
 import httpx
 from lxml import etree
@@ -43,6 +44,19 @@ _MIMETYPE_EXTENSION_MAP: dict[str, str] = {
 _CDN_BASE = "https://ars.els-cdn.com/content/image"
 
 
+class ProgressCallback(
+    Protocol,
+):
+    """Callback invoked after each record is processed."""
+
+    def __call__(
+        self,
+        record: Mapping[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> Awaitable[None] | None: ...
+
+
 async def download_articles(
     records: Sequence[Mapping[str, str]],
     *,
@@ -50,6 +64,7 @@ async def download_articles(
     cache: Any | None = None,
     cache_namespace: str = "articles",
     settings: Settings | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[ArticleContent]:
     """Download ScienceDirect articles identified by DOI and/or PubMed ID records.
 
@@ -57,6 +72,11 @@ async def download_articles(
     For every record, the downloader first attempts to retrieve the FULL text using the DOI
     (when present); if that fails, it retries with the PubMed ID. A successful download using
     either identifier stops further attempts for that record.
+
+    When ``progress_callback`` is provided it will be invoked after each record finishes processing.
+    The callback receives the original record, the downloaded ``ArticleContent`` when successful
+    (``None`` when no payload is returned), and the exception raised while processing
+    (``None`` on success). Callbacks may be synchronous or async functions.
     """
     if not records:
         return []
@@ -65,9 +85,21 @@ async def download_articles(
     owns_client = client is None
     sci_client = client or ScienceDirectClient(cfg)
 
+    async def _emit_progress(
+        record: Mapping[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> None:
+        if progress_callback is None:
+            return
+        result = progress_callback(record, article, error)
+        if inspect.isawaitable(result):
+            await result
+
     async def _runner() -> list[ArticleContent]:
         results: list[ArticleContent] = []
         for record in records:
+            article: ArticleContent | None = None
             try:
                 article = await _download_record(
                     record=record,
@@ -75,13 +107,17 @@ async def download_articles(
                     cache=cache,
                     cache_namespace=cache_namespace,
                 )
-            except httpx.HTTPError:
+            except httpx.HTTPError as exc:
+                await _emit_progress(record, None, exc)
                 raise
-            except Exception:
+            except Exception as exc:
+                await _emit_progress(record, None, exc)
                 continue
             if article is None:
+                await _emit_progress(record, None, None)
                 continue
             results.append(article)
+            await _emit_progress(record, article, None)
         return results
 
     if owns_client:
