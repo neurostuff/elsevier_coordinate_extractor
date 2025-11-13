@@ -32,6 +32,12 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["elsevier_coordinate_extraction*"]
 
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"elsevier_coordinate_extraction.stylesheets" = ["*.xsl"]
+
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = [
