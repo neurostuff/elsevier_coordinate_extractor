@@ -76,7 +76,8 @@ async def download_articles(
     When ``progress_callback`` is provided it will be invoked after each record finishes processing.
     The callback receives the original record, the downloaded ``ArticleContent`` when successful
     (``None`` when no payload is returned), and the exception raised while processing
-    (``None`` on success). Callbacks may be synchronous or async functions.
+    (``None`` on success). Callbacks may be synchronous or async functions. Download processing
+    continues through the full list even when individual records fail.
     """
     if not records:
         return []
@@ -107,9 +108,6 @@ async def download_articles(
                     cache=cache,
                     cache_namespace=cache_namespace,
                 )
-            except httpx.HTTPError as exc:
-                await _emit_progress(record, None, exc)
-                raise
             except Exception as exc:
                 await _emit_progress(record, None, exc)
                 continue

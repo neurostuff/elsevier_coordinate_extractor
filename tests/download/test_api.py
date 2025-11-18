@@ -57,7 +57,7 @@ async def test_download_single_article_xml(test_dois: Sequence[str]) -> None:
 
 @pytest.mark.asyncio()
 async def test_download_marks_truncated_full_text() -> None:
-    """When the payload lacks body content we should mark the view as STANDARD."""
+    """When the payload lacks body content we emit an error but keep going."""
 
     doi = "10.1016/j.neucli.2007.12.007"
     payload = b"""
@@ -80,16 +80,30 @@ async def test_download_marks_truncated_full_text() -> None:
 
     cfg = _test_settings()
     transport = httpx.MockTransport(handler)
+    progress_calls: list[tuple[dict[str, str], ArticleContent | None, BaseException | None]] = []
+
+    def progress_cb(
+        record: dict[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> None:
+        progress_calls.append((record, article, error))
+
     async with ScienceDirectClient(cfg, transport=transport) as client:
-        with pytest.raises(httpx.HTTPStatusError, match="metadata-only payload"):
-            await download_articles([{"doi": doi}], client=client)
+        articles = await download_articles([{"doi": doi}], client=client, progress_callback=progress_cb)
 
     assert len(captured_requests) == 1
+    assert articles == []
+    assert len(progress_calls) == 1
+    record, article, error = progress_calls[0]
+    assert record["doi"] == doi
+    assert article is None
+    assert isinstance(error, httpx.HTTPStatusError)
 
 
 @pytest.mark.asyncio()
 async def test_download_errors_when_full_view_invalid(test_dois: Sequence[str]) -> None:
-    """Client should raise if Elsevier rejects FULL view requests."""
+    """Client reports invalid FULL view errors without raising."""
 
     doi = test_dois[0]
 
@@ -108,9 +122,24 @@ async def test_download_errors_when_full_view_invalid(test_dois: Sequence[str]) 
 
     cfg = _test_settings()
     transport = httpx.MockTransport(handler)
+    progress_calls: list[tuple[dict[str, str], ArticleContent | None, BaseException | None]] = []
+
+    def progress_cb(
+        record: dict[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> None:
+        progress_calls.append((record, article, error))
+
     async with ScienceDirectClient(cfg, transport=transport) as client:
-        with pytest.raises(httpx.HTTPStatusError, match="rejected FULL view"):
-            await download_articles([{"doi": doi}], client=client)
+        articles = await download_articles([{"doi": doi}], client=client, progress_callback=progress_cb)
+
+    assert articles == []
+    assert len(progress_calls) == 1
+    record, article, error = progress_calls[0]
+    assert record["doi"] == doi
+    assert article is None
+    assert isinstance(error, httpx.HTTPStatusError)
 
 
 @pytest.mark.asyncio()
@@ -271,7 +300,7 @@ async def test_download_progress_callback_invoked_for_each_record(test_dois: Seq
 
 @pytest.mark.asyncio()
 async def test_download_progress_callback_receives_errors(test_dois: Sequence[str]) -> None:
-    """Progress callback should receive exceptions before they propagate."""
+    """Progress callback should receive exceptions even when downloads do not raise."""
 
     cfg = _test_settings()
     doi = test_dois[0]
@@ -290,12 +319,68 @@ async def test_download_progress_callback_receives_errors(test_dois: Sequence[st
         await asyncio.sleep(0)
         progress_calls.append((record, article, error))
 
-    with pytest.raises(httpx.TimeoutException):
-        async with ScienceDirectClient(cfg, transport=transport) as client:
-            await download_articles([{"doi": doi}], client=client, progress_callback=progress_cb)
+    async with ScienceDirectClient(cfg, transport=transport) as client:
+        articles = await download_articles([{"doi": doi}], client=client, progress_callback=progress_cb)
 
+    assert articles == []
     assert len(progress_calls) == 1
     record, article, error = progress_calls[0]
     assert record["doi"] == doi
     assert article is None
     assert isinstance(error, httpx.TimeoutException)
+
+
+@pytest.mark.asyncio()
+async def test_download_continues_after_identifier_error(test_dois: Sequence[str]) -> None:
+    """Errors for one record should not prevent later records from being processed."""
+
+    cfg = _test_settings()
+    bad_doi, good_doi = test_dois[:2]
+
+    call_counter = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_counter
+        call_counter += 1
+        doi = request.url.path.rsplit("/", 1)[-1]
+        if call_counter == 1:
+            raise httpx.TimeoutException("simulated timeout")
+        payload = f"""
+        <article xmlns="http://www.elsevier.com/xml/svapi/article/dtd" xmlns:ce="http://www.elsevier.com/xml/common/dtd">
+          <item-info>
+            <doi>{doi}</doi>
+            <pii>S105381192400679X</pii>
+          </item-info>
+          <ce:body><ce:para>{doi}</ce:para></ce:body>
+        </article>
+        """.encode("utf-8")
+        return httpx.Response(
+            200,
+            content=payload,
+            headers={"content-type": "application/xml"},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    progress_calls: list[tuple[dict[str, str], ArticleContent | None, BaseException | None]] = []
+
+    def progress_cb(
+        record: dict[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> None:
+        progress_calls.append((record, article, error))
+
+    records = [{"doi": bad_doi}, {"doi": good_doi}]
+    async with ScienceDirectClient(cfg, transport=transport) as client:
+        articles = await download_articles(records, client=client, progress_callback=progress_cb)
+
+    assert len(articles) == 1
+    assert articles[0].doi == good_doi
+    assert len(progress_calls) == 2
+    assert progress_calls[0][0]["doi"] == bad_doi
+    assert progress_calls[0][1] is None
+    assert isinstance(progress_calls[0][2], httpx.TimeoutException)
+    assert progress_calls[1][0]["doi"] == good_doi
+    assert progress_calls[1][1] is not None
+    assert progress_calls[1][2] is None
