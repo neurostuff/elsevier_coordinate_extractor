@@ -14,6 +14,7 @@ dependencies = [
   "numpy>=1.26.0",
   "scipy>=1.11.0",
   "pubget @ git+https://github.com/neuroquery/pubget.git@main",
+  "tqdm>=4.66.0",
   "socksio>=1.0.0",
 ]
 
@@ -37,6 +38,9 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "elsevier_coordinate_extraction.stylesheets" = ["*.xsl"]
+
+[project.scripts]
+elsevier-extract = "elsevier_coordinate_extraction.cli.main:main"
 
 [tool.pytest.ini_options]
 addopts = "-ra"
