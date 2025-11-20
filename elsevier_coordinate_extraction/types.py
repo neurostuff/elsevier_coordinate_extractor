@@ -14,8 +14,8 @@ class ArticleContent:
 
     doi: str
     payload: bytes
-    content_type: str
-    format: str
+    content_type: str  # MIME type from the HTTP response, e.g., application/xml
+    format: str  # internal format label, e.g., "xml"
     retrieved_at: datetime
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -54,7 +54,7 @@ def build_article_content(
     payload: bytes,
     *,
     content_type: str,
-    fmt: str,
+    format: str,
     metadata: Mapping[str, Any] | None = None,
     retrieved_at: datetime | None = None,
 ) -> ArticleContent:
@@ -65,7 +65,7 @@ def build_article_content(
         doi=doi,
         payload=payload,
         content_type=content_type,
-        format=fmt,
+        format=format,
         retrieved_at=timestamp,
         metadata=meta,
     )

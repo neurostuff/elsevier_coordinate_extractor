@@ -120,7 +120,7 @@ def test_extract_coordinates_from_synthetic_table() -> None:
         doi="synthetic-doi",
         payload=payload,
         content_type="text/xml",
-        fmt="xml",
+        format="xml",
         metadata={},
     )
     result = extract_coordinates([article])

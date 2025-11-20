@@ -52,20 +52,19 @@ def _build_study(article: ArticleContent) -> dict[str, Any]:
     """Process a single article into a study representation."""
 
     analyses: list[dict[str, Any]] = []
+    article_text: str | None = None
     tables = extract_tables_from_article(article.payload)
     if not tables:
         tables = _manual_extract_tables(article.payload)
-    article_text: str | None = None
     for metadata, df in tables:
         meta_text = _metadata_text(metadata)
-        coords = _extract_coordinates_from_dataframe(df, meta_text.lower())
+        coords = _extract_coordinates_from_dataframe(df)
         if not coords:
             continue
         header_text = " ".join(str(col).lower() for col in df.columns)
         space = _heuristic_space(header_text, meta_text)
         if space is None:
-            if article_text is None:
-                article_text = _article_text(article.payload)
+            article_text = _article_text(article.payload)
             guessed = _neurosynth_guess_space(article_text)
             if guessed != "UNKNOWN":
                 space = guessed
@@ -322,7 +321,7 @@ def _cals_table_to_dataframe(tgroup: etree._Element) -> pd.DataFrame | None:
     return pd.DataFrame(grid, columns=col_order)
 
 
-def _extract_coordinates_from_dataframe(df: pd.DataFrame, meta_text: str) -> list[list[float]]:
+def _extract_coordinates_from_dataframe(df: pd.DataFrame) -> list[list[float]]:
     df = _normalize_table(df)
     extracted = _extract_coordinates_from_table(df)
     if not extracted.empty:
@@ -331,21 +330,7 @@ def _extract_coordinates_from_dataframe(df: pd.DataFrame, meta_text: str) -> lis
             [float(row.x), float(row.y), float(row.z)]
             for row in extracted.itertuples(index=False)
         ]
-
-    coordinates: list[list[float]] = []
-    preferred = _coordinate_columns(df.columns)
-    for row in df.itertuples(index=False, name=None):
-        values = _select_row_values(row, df.columns, preferred)
-        if not values:
-            continue
-        numbers = _extract_numbers(" ".join(values))
-        if len(numbers) >= 3:
-            coordinates.append(numbers[:3])
-            continue
-        fallback = _extract_numbers(" ".join(str(value) for value in row))
-        if len(fallback) >= 3:
-            coordinates.append(fallback[:3])
-    return coordinates
+    return []
 
 
 def _normalize_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -396,31 +381,3 @@ def _normalize_table(df: pd.DataFrame) -> pd.DataFrame:
         other_cols = [col for col in df.columns if col not in xyz_cols]
         df = df[list(xyz_cols) + other_cols]
     return df
-
-
-def _coordinate_columns(columns: pd.Index) -> list[str]:
-    order = {"x": 0, "y": 1, "z": 2}
-    matched = []
-    for col in columns:
-        name = str(col).strip().lower()
-        if name in order:
-            matched.append((order[name], col))
-    return [col for _, col in sorted(matched)]
-
-
-def _select_row_values(row: tuple[Any, ...], columns: pd.Index, preferred: list[str]) -> list[str]:
-    if preferred:
-        values = []
-        for col in preferred:
-            idx = columns.get_loc(col)
-            if idx < len(row):
-                values.append(str(row[idx]))
-        return values
-    return [str(value) for value in row if value not in (None, "")]
-
-
-def _extract_numbers(text: str) -> list[float]:
-    import re
-
-    matches = re.findall(r"[-+]?\d+(?:\.\d+)?", text.replace("−", "-"))
-    return [float(match) for match in matches]

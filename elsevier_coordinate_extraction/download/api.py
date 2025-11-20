@@ -277,7 +277,7 @@ async def _download_identifier(
         doi=article_doi,
         payload=payload,
         content_type=content_type,
-        fmt="xml",
+        format="xml",
         metadata=metadata,
     )
 

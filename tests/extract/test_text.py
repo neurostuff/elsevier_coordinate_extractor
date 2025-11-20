@@ -36,7 +36,7 @@ def test_extract_text_from_real_article(tmp_path: Path) -> None:
         doi="10.1016/j.nbd.2012.03.039",
         payload=payload,
         content_type="text/xml",
-        fmt="xml",
+        format="xml",
         metadata={"pii": "S0969-9961(12)00128-3"},
     )
     extracted = extract_text_from_article(article)

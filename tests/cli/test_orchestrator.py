@@ -14,7 +14,7 @@ async def test_process_articles_creates_outputs(tmp_path: Path, monkeypatch):
         doi="10.1016/j.test",
         payload=b"<root/>",
         content_type="application/xml",
-        fmt="xml",
+        format="xml",
         metadata={"identifier_lookup": {"doi": "10.1016/j.test"}},
     )
 
