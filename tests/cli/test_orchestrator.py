@@ -235,6 +235,9 @@ async def test_process_articles_continues_on_error_by_default(tmp_path: Path, mo
     assert stats["skipped"] == 0
 
     manifest = tmp_path / "manifest.jsonl"
-    statuses = [json.loads(line)["status"] for line in manifest.read_text().splitlines()]
+    statuses = [
+        json.loads(line)["status"]
+        for line in manifest.read_text().splitlines()
+    ]
     assert statuses.count("success") == 1
     assert statuses.count("failed") == 1
