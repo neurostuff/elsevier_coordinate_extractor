@@ -39,7 +39,7 @@ After installing the package, the `elsevier-extract` script becomes available vi
 - `--dois` for comma-separated DOIs or a text file containing one DOI per line
 - `--jsonl` for a JSON Lines file where each line is `{"doi": "...", "pmid": "..."}`
 
-Additional flags allow users to skip writing specific outputs (`--skip-xml`, `--skip-text`, `--skip-tables`, `--skip-coordinates`), continue past failures (`--continue-on-error`), disable caching (`--no-cache`), or adjust verbosity (`-v/--verbose`, `-q/--quiet`). `--output-dir` controls the base directory for results, and the CLI honors `ELSEVIER_EXTRACTION_WORKERS` when no `--max-workers` override is provided.
+Additional flags allow users to skip writing specific outputs (`--skip-xml`, `--skip-text`, `--skip-tables`, `--skip-coordinates`), continue past failures by default (`--continue-on-error`), opt into fail-fast behavior (`--fail-fast`), disable caching (`--no-cache`), or adjust verbosity (`-v/--verbose`, `-q/--quiet`). `--output-dir` controls the base directory for results, and the CLI honors `ELSEVIER_EXTRACTION_WORKERS` when no `--max-workers` override is provided.
 
 ### Output layout
 

@@ -43,7 +43,7 @@ async def process_articles(
     skip_text: bool = False,
     skip_tables: bool = False,
     skip_coordinates: bool = False,
-    continue_on_error: bool = False,
+    continue_on_error: bool = True,
     use_cache: bool = True,
     verbose: bool = False,
 ) -> Dict[str, int]:
@@ -59,6 +59,7 @@ async def process_articles(
         article: ArticleContent | None,
         error: BaseException | None,
     ) -> None:
+        download_bar.update(1)
         if error is not None:
             downloaded_errors.append(record.copy())
             download_exceptions.append(error)
