@@ -1,4 +1,4 @@
-"""Async ScienceDirect client built on httpx."""
+"""Async Springer Open Access client built on httpx."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import httpx
 from . import rate_limits
 from .settings import Settings
 
-__all__ = ["ScienceDirectClient"]
+__all__ = ["SpringerOpenAccessClient"]
 
 
 def _http2_enabled() -> bool:
@@ -22,8 +22,8 @@ def _http2_enabled() -> bool:
     return True
 
 
-class ScienceDirectClient:
-    """Thin wrapper around httpx.AsyncClient with Elsevier defaults."""
+class SpringerOpenAccessClient:
+    """Thin wrapper around httpx.AsyncClient for Springer OA endpoints."""
 
     def __init__(
         self,
@@ -39,7 +39,7 @@ class ScienceDirectClient:
         concurrency = settings.concurrency or 1
         self._semaphore = asyncio.Semaphore(concurrency)
 
-    async def __aenter__(self) -> ScienceDirectClient:
+    async def __aenter__(self) -> SpringerOpenAccessClient:
         await self._ensure_client()
         return self
 
@@ -92,15 +92,10 @@ class ScienceDirectClient:
     async def _ensure_client(self) -> None:
         if self._client is not None:
             return
-        headers: dict[str, str] = {
-            "X-ELS-APIKey": self._settings.api_key,
-            "User-Agent": self._settings.user_agent,
-        }
-        if self._settings.insttoken:
-            headers["X-ELS-Insttoken"] = self._settings.insttoken
+        headers: dict[str, str] = {"User-Agent": self._settings.user_agent}
         timeout = httpx.Timeout(self._settings.timeout)
         client_kwargs: dict[str, Any] = {
-            "base_url": self._settings.base_url,
+            "base_url": self._settings.springer_base_url,
             "timeout": timeout,
             "headers": headers,
             "transport": self._transport,
@@ -114,6 +109,18 @@ class ScienceDirectClient:
             client_kwargs["trust_env"] = False
         self._client = httpx.AsyncClient(**client_kwargs)
 
+    def _build_params(
+        self,
+        params: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        if not self._settings.springer_api_key:
+            raise RuntimeError(
+                "SPRINGER_API_KEY is required to query Springer Open Access API."
+            )
+        merged = dict(params or {})
+        merged.setdefault("api_key", self._settings.springer_api_key)
+        return merged
+
     async def _request(
         self,
         method: str,
@@ -125,13 +132,14 @@ class ScienceDirectClient:
         await self._ensure_client()
         assert self._client is not None
         attempt = 0
+        request_params = self._build_params(params)
         while True:
             request_headers = {"Accept": accept} if accept else {}
             async with self._semaphore:
                 response = await self._client.request(
                     method,
                     path,
-                    params=params,
+                    params=request_params,
                     headers=request_headers,
                 )
             delay = rate_limits.get_retry_delay(response)
@@ -144,14 +152,15 @@ class ScienceDirectClient:
             ):
                 snapshot = rate_limits.get_rate_limit_snapshot(response)
                 wait_seconds = snapshot.seconds_until_reset() or delay
-                message = (
-                    "Rate limit reset wait "
-                    f"({wait_seconds:g}s) exceeds configured maximum "
-                    f"({max_wait:g}s)."
-                )
+                retry_after = response.headers.get("Retry-After")
                 raise httpx.HTTPStatusError(
-                    message
-                    + " Increase ELSEVIER_MAX_RATE_LIMIT_WAIT_SECONDS to allow longer waits.",
+                    "Springer OpenAccess rate limit wait "
+                    f"({wait_seconds:g}s) exceeds configured maximum ({max_wait:g}s). "
+                    "Likely quota exhaustion. "
+                    f"Retry-After={retry_after!r}, "
+                    f"X-RateLimit-Limit={snapshot.limit}, "
+                    f"X-RateLimit-Remaining={snapshot.remaining}, "
+                    f"X-RateLimit-Reset={snapshot.reset_epoch}.",
                     request=response.request,
                     response=response,
                 )
@@ -163,9 +172,5 @@ class ScienceDirectClient:
                 await asyncio.sleep(delay)
                 attempt += 1
                 continue
-
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as exc:
-                raise exc
+            response.raise_for_status()
             return response

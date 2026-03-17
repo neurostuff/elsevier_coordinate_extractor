@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 import inspect
 import re
 from collections.abc import Awaitable, Mapping, Sequence
@@ -9,10 +10,12 @@ from typing import Any, Protocol
 
 import httpx
 from lxml import etree
+from urllib.parse import urlparse
 
 from elsevier_coordinate_extraction import rate_limits
 from elsevier_coordinate_extraction.client import ScienceDirectClient
-from urllib.parse import urlparse
+from elsevier_coordinate_extraction.pubmed import PubMedResolver
+from elsevier_coordinate_extraction.springer_client import SpringerOpenAccessClient
 
 from elsevier_coordinate_extraction.settings import Settings, get_settings
 from elsevier_coordinate_extraction.types import ArticleContent, build_article_content
@@ -57,10 +60,20 @@ class ProgressCallback(
     ) -> Awaitable[None] | None: ...
 
 
+class DownloadSkip(RuntimeError):
+    """Raised when a record should be skipped with a specific reason."""
+
+    def __init__(self, reason: str, message: str | None = None) -> None:
+        self.skip_reason = reason
+        super().__init__(message or reason)
+
+
 async def download_articles(
     records: Sequence[Mapping[str, str]],
     *,
     client: ScienceDirectClient | None = None,
+    springer_client: SpringerOpenAccessClient | None = None,
+    pubmed_resolver: PubMedResolver | None = None,
     cache: Any | None = None,
     cache_namespace: str = "articles",
     settings: Settings | None = None,
@@ -85,6 +98,10 @@ async def download_articles(
     cfg = settings or get_settings()
     owns_client = client is None
     sci_client = client or ScienceDirectClient(cfg)
+    owns_springer_client = springer_client is None
+    springer_oa_client = springer_client or SpringerOpenAccessClient(cfg)
+    owns_pubmed_resolver = pubmed_resolver is None
+    pmid_resolver = pubmed_resolver or PubMedResolver(cfg)
 
     async def _emit_progress(
         record: Mapping[str, str],
@@ -104,7 +121,10 @@ async def download_articles(
             try:
                 article = await _download_record(
                     record=record,
-                    client=sci_client,
+                    settings=cfg,
+                    elsevier_client=sci_client,
+                    springer_client=springer_oa_client,
+                    pubmed_resolver=pmid_resolver,
                     cache=cache,
                     cache_namespace=cache_namespace,
                 )
@@ -118,13 +138,81 @@ async def download_articles(
             await _emit_progress(record, article, None)
         return results
 
-    if owns_client:
-        async with sci_client:
-            return await _runner()
-    return await _runner()
+    async with AsyncExitStack() as stack:
+        if owns_client:
+            await stack.enter_async_context(sci_client)
+        if owns_springer_client:
+            await stack.enter_async_context(springer_oa_client)
+        if owns_pubmed_resolver:
+            await stack.enter_async_context(pmid_resolver)
+        return await _runner()
 
 
 async def _download_record(
+    record: Mapping[str, str],
+    *,
+    settings: Settings,
+    elsevier_client: ScienceDirectClient,
+    springer_client: SpringerOpenAccessClient,
+    pubmed_resolver: PubMedResolver,
+    cache: Any | None,
+    cache_namespace: str,
+) -> ArticleContent | None:
+    doi = (record.get("doi") or "").strip()
+    pmid = (record.get("pmid") or "").strip()
+
+    article = await _download_elsevier_record(
+        record=record,
+        client=elsevier_client,
+        cache=cache,
+        cache_namespace=cache_namespace,
+    )
+    if article is not None:
+        return article
+
+    if not settings.springer_api_key:
+        raise DownloadSkip("springer_unconfigured")
+
+    resolved_doi = doi
+    if not resolved_doi:
+        if not pmid:
+            raise DownloadSkip("pmid_to_doi_unresolved")
+        try:
+            resolved = await pubmed_resolver.resolve_doi(pmid)
+        except Exception as exc:  # pragma: no cover - network/transport dependent
+            raise DownloadSkip("pmid_to_doi_unresolved") from exc
+        if not resolved:
+            raise DownloadSkip("pmid_to_doi_unresolved")
+        resolved_doi = resolved
+
+    springer_record = await _fetch_springer_metadata_record(
+        doi=resolved_doi,
+        client=springer_client,
+    )
+    if springer_record is None:
+        raise DownloadSkip("springer_not_found")
+
+    try:
+        springer_article = await _download_springer_jats(
+            doi=resolved_doi,
+            record=springer_record,
+            client=springer_client,
+            cache=cache,
+            cache_namespace=cache_namespace,
+        )
+    except httpx.HTTPStatusError as exc:
+        if _is_rate_limited_error(exc):
+            raise DownloadSkip("springer_rate_limited") from exc
+        raise
+    if springer_article is None:
+        raise DownloadSkip("springer_jats_unavailable")
+
+    springer_article.metadata.setdefault("identifier_lookup", dict(record))
+    return springer_article
+
+
+async def _download_elsevier_record(
+    *,
     record: Mapping[str, str],
     client: ScienceDirectClient,
     cache: Any | None,
@@ -164,6 +252,103 @@ async def _download_record(
     if last_error is not None:
         raise last_error
     return None
+
+
+async def _fetch_springer_metadata_record(
+    *,
+    doi: str,
+    client: SpringerOpenAccessClient,
+) -> dict[str, Any] | None:
+    try:
+        data = await client.get_json(
+            "/openaccess/json",
+            params={
+                "q": f"doi:{doi}",
+                "s": "1",
+                "p": "1",
+            },
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return None
+        if _is_rate_limited_error(exc):
+            raise DownloadSkip("springer_rate_limited") from exc
+        raise
+    records = data.get("records")
+    if not isinstance(records, list) or not records:
+        return None
+    first = records[0]
+    if not isinstance(first, Mapping):
+        return None
+    return dict(first)
+
+
+async def _download_springer_jats(
+    *,
+    doi: str,
+    record: Mapping[str, Any],
+    client: SpringerOpenAccessClient,
+    cache: Any | None,
+    cache_namespace: str,
+) -> ArticleContent | None:
+    cache_key = f"springer-jats:doi:{doi}"
+    payload: bytes | None = None
+    content_type = "application/xml"
+    metadata: dict[str, Any] = {
+        "provider": "springer",
+        "source_api": "openaccess",
+        "resolved_doi": doi,
+        "springer_record": _summarize_springer_record(record),
+    }
+
+    if cache is not None:
+        cached = await cache.get(cache_namespace, cache_key)
+        if cached is not None:
+            payload = cached
+            metadata["transport"] = "cache"
+
+    if payload is None:
+        try:
+            response = await client.request(
+                "GET",
+                "/openaccess/jats",
+                params={
+                    "q": f"doi:{doi}",
+                    "s": "1",
+                    "p": "1",
+                },
+                accept="application/xml",
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return None
+            raise
+        payload = response.content
+        content_type = response.headers.get("content-type", "application/xml")
+        metadata.update(
+            {
+                "transport": response.request.url.scheme,
+                "status_code": response.status_code,
+            }
+        )
+        snapshot = rate_limits.get_rate_limit_snapshot(response)
+        metadata.update(snapshot.to_metadata())
+        if cache is not None:
+            await cache.set(cache_namespace, cache_key, payload)
+
+    if not _payload_contains_springer_full_text(payload):
+        return None
+
+    extracted_doi = _extract_doi(payload)
+    metadata["full_text_retrieved"] = True
+    metadata["doi"] = extracted_doi or doi
+    return build_article_content(
+        doi=extracted_doi or doi,
+        payload=payload,
+        content_type=content_type,
+        format="xml",
+        metadata=metadata,
+    )
 
 
 async def _download_identifier(
@@ -256,6 +441,7 @@ async def _download_identifier(
     metadata["view_obtained"] = inferred_view
     metadata["view"] = inferred_view
     metadata["full_text_retrieved"] = full_text
+    metadata.setdefault("provider", "elsevier")
 
     pii = _extract_pii(payload)
     metadata.setdefault("pii", pii)
@@ -272,6 +458,7 @@ async def _download_identifier(
         article_doi = identifier
     else:
         article_doi = extracted_doi or identifier
+    metadata.setdefault("resolved_doi", article_doi)
 
     return build_article_content(
         doi=article_doi,
@@ -416,6 +603,39 @@ def _guess_cdn_url(api_url: str, extension: str | None) -> str | None:
     return f"{_CDN_BASE}/{filename}"
 
 
+def _summarize_springer_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    fields = (
+        "identifier",
+        "doi",
+        "title",
+        "publicationName",
+        "journalTitle",
+        "publicationDate",
+    )
+    summary: dict[str, Any] = {}
+    for field in fields:
+        value = record.get(field)
+        if value:
+            summary[field] = value
+    return summary
+
+
+def _payload_contains_springer_full_text(payload: bytes) -> bool:
+    try:
+        root = etree.fromstring(payload)
+    except etree.XMLSyntaxError:
+        return False
+    body_present = root.xpath(
+        './/*[local-name()="body" or local-name()="sec" or local-name()="p"]'
+    )
+    if body_present:
+        return True
+    table_present = root.xpath(
+        './/*[local-name()="table-wrap" or local-name()="table"]'
+    )
+    return bool(table_present)
+
+
 def _is_invalid_view_error(response: httpx.Response) -> bool:
     """Detect Elsevier errors indicating the requested view is unsupported."""
 
@@ -427,3 +647,9 @@ def _is_invalid_view_error(response: httpx.Response) -> bool:
     except Exception:  # pragma: no cover - defensive fallback
         return False
     return "view" in body_text and "not valid" in body_text
+
+
+def _is_rate_limited_error(exc: httpx.HTTPStatusError) -> bool:
+    """Return True when the failure is an HTTP 429/rate-limit response."""
+    response = exc.response
+    return response is not None and response.status_code == 429

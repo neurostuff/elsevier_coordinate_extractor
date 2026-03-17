@@ -65,6 +65,9 @@ def extract_text_from_article(
     except etree.XMLSyntaxError as exc:
         raise TextExtractionError("Article payload is not valid XML.") from exc
 
+    if _is_jats_document(document):
+        return _extract_text_from_jats(document)
+
     stylesheet = _load_text_stylesheet()
     try:
         transformed = stylesheet(document)
@@ -81,6 +84,91 @@ def extract_text_from_article(
         "abstract": _clean_block(_extract_text(root, "abstract")),
         "body": _clean_block(_extract_text(root, "body")),
     }
+
+
+def _is_jats_document(root: etree._Element) -> bool:
+    namespace_uri = etree.QName(root).namespace or ""
+    if "jats" in namespace_uri.lower():
+        return True
+    if root.xpath('.//*[local-name()="article-title" or local-name()="kwd-group"]'):
+        return True
+    return bool(
+        root.xpath('.//*[local-name()="article-id" and @pub-id-type="doi"]')
+    )
+
+
+def _extract_text_from_jats(root: etree._Element) -> dict[str, str | None]:
+    doi = _first_xpath_text(
+        root,
+        './/*[local-name()="article-id" and @pub-id-type="doi"][1]',
+    )
+    pii = _first_xpath_text(
+        root,
+        './/*[local-name()="article-id" and @pub-id-type="pii"][1]',
+    )
+    title = _first_xpath_text(
+        root,
+        (
+            './/*[local-name()="article-title" or local-name()="chapter-title" '
+            'or local-name()="book-title"][1]'
+        ),
+    )
+    abstract_blocks = _collect_block_text(
+        root.xpath('.//*[local-name()="abstract"]')
+    )
+    body_blocks = _collect_block_text(
+        root.xpath('.//*[local-name()="body"]')
+    )
+    if not body_blocks:
+        body_blocks = _collect_block_text(root.xpath('.//*[local-name()="sec"]'))
+
+    keyword_values = [
+        " ".join(str(value).split())
+        for value in root.xpath('.//*[local-name()="kwd"]//text()')
+        if str(value).strip()
+    ]
+    deduped_keywords: list[str] = []
+    for keyword in keyword_values:
+        if keyword and keyword not in deduped_keywords:
+            deduped_keywords.append(keyword)
+
+    return {
+        "doi": _clean_doi(doi),
+        "pii": _clean_field(pii),
+        "title": _clean_field(title),
+        "keywords": _clean_keywords("\n".join(deduped_keywords) if deduped_keywords else None),
+        "abstract": _clean_block("\n\n".join(abstract_blocks) if abstract_blocks else None),
+        "body": _clean_block("\n\n".join(body_blocks) if body_blocks else None),
+    }
+
+
+def _first_xpath_text(root: etree._Element, xpath: str) -> str | None:
+    results = root.xpath(xpath)
+    if not results:
+        return None
+    node = results[0]
+    if isinstance(node, etree._Element):
+        return "".join(node.itertext()).strip() or None
+    text = str(node).strip()
+    return text or None
+
+
+def _collect_block_text(nodes: list[etree._Element]) -> list[str]:
+    blocks: list[str] = []
+    for node in nodes:
+        paragraph_nodes = node.xpath('.//*[local-name()="p"]')
+        if paragraph_nodes:
+            paragraph_text = [
+                " ".join("".join(p.itertext()).split())
+                for p in paragraph_nodes
+                if "".join(p.itertext()).strip()
+            ]
+            combined = "\n".join(paragraph_text).strip()
+        else:
+            combined = " ".join("".join(node.itertext()).split()).strip()
+        if combined:
+            blocks.append(combined)
+    return blocks
 
 
 def format_article_text(extracted: Mapping[str, str | None]) -> str:
