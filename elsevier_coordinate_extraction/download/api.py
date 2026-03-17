@@ -96,6 +96,7 @@ async def download_articles(
         return []
 
     cfg = settings or get_settings()
+    springer_blocked_reason: str | None = None
     owns_client = client is None
     sci_client = client or ScienceDirectClient(cfg)
     owns_springer_client = springer_client is None
@@ -115,6 +116,7 @@ async def download_articles(
             await result
 
     async def _runner() -> list[ArticleContent]:
+        nonlocal springer_blocked_reason
         results: list[ArticleContent] = []
         for record in records:
             article: ArticleContent | None = None
@@ -127,8 +129,11 @@ async def download_articles(
                     pubmed_resolver=pmid_resolver,
                     cache=cache,
                     cache_namespace=cache_namespace,
+                    springer_blocked_reason=springer_blocked_reason,
                 )
             except Exception as exc:
+                if getattr(exc, "skip_reason", None) == "springer_rate_limited":
+                    springer_blocked_reason = str(exc)
                 await _emit_progress(record, None, exc)
                 continue
             if article is None:
@@ -157,6 +162,7 @@ async def _download_record(
     pubmed_resolver: PubMedResolver,
     cache: Any | None,
     cache_namespace: str,
+    springer_blocked_reason: str | None,
 ) -> ArticleContent | None:
     doi = (record.get("doi") or "").strip()
     pmid = (record.get("pmid") or "").strip()
@@ -172,6 +178,8 @@ async def _download_record(
 
     if not settings.springer_api_key:
         raise DownloadSkip("springer_unconfigured")
+    if springer_blocked_reason:
+        raise DownloadSkip("springer_rate_limited", springer_blocked_reason)
 
     resolved_doi = doi
     if not resolved_doi:
@@ -202,7 +210,7 @@ async def _download_record(
         )
     except httpx.HTTPStatusError as exc:
         if _is_rate_limited_error(exc):
-            raise DownloadSkip("springer_rate_limited") from exc
+            raise DownloadSkip("springer_rate_limited", str(exc)) from exc
         raise
     if springer_article is None:
         raise DownloadSkip("springer_jats_unavailable")
@@ -272,7 +280,7 @@ async def _fetch_springer_metadata_record(
         if exc.response.status_code == 404:
             return None
         if _is_rate_limited_error(exc):
-            raise DownloadSkip("springer_rate_limited") from exc
+            raise DownloadSkip("springer_rate_limited", str(exc)) from exc
         raise
     records = data.get("records")
     if not isinstance(records, list) or not records:

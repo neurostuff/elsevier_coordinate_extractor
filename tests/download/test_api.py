@@ -743,3 +743,58 @@ async def test_download_reports_skip_reason_when_springer_rate_limited() -> None
     assert article is None
     assert error is not None
     assert getattr(error, "skip_reason", None) == "springer_rate_limited"
+
+
+@pytest.mark.asyncio()
+async def test_download_short_circuits_springer_after_rate_limit() -> None:
+    records = [{"doi": "10.1007/s12345-6789-3"}, {"doi": "10.1007/s12345-6789-4"}]
+    progress_calls: list[tuple[dict[str, str], ArticleContent | None, BaseException | None]] = []
+
+    class StubElsevierClient:
+        async def request(self, method: str, path: str, **kwargs) -> httpx.Response:
+            request = httpx.Request(method, f"https://api.elsevier.com/content{path}")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("not found", request=request, response=response)
+
+    class StubSpringerClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def get_json(
+            self,
+            path: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> dict[str, object]:
+            self.calls += 1
+            request = httpx.Request("GET", "https://api.springernature.com/openaccess/json")
+            response = httpx.Response(429, request=request)
+            raise httpx.HTTPStatusError(
+                "Springer OpenAccess rate limit wait (7200s) exceeds configured maximum (3600s).",
+                request=request,
+                response=response,
+            )
+
+    def progress_cb(
+        record: dict[str, str],
+        article: ArticleContent | None,
+        error: BaseException | None,
+    ) -> None:
+        progress_calls.append((record, article, error))
+
+    springer = StubSpringerClient()
+    articles = await download_articles(
+        records,
+        client=StubElsevierClient(),  # type: ignore[arg-type]
+        springer_client=springer,  # type: ignore[arg-type]
+        settings=_test_settings_with_springer(),
+        progress_callback=progress_cb,
+    )
+
+    assert articles == []
+    assert springer.calls == 1
+    assert len(progress_calls) == 2
+    for _, article, error in progress_calls:
+        assert article is None
+        assert error is not None
+        assert getattr(error, "skip_reason", None) == "springer_rate_limited"

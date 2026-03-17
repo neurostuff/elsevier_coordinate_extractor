@@ -302,3 +302,4 @@ async def test_process_articles_marks_skip_reason_from_download(tmp_path: Path, 
     assert entries[0]["status"] == "skipped"
     assert entries[0]["reason"] == "springer_jats_unavailable"
     assert entries[0]["source"] == "springer"
+    assert entries[0]["error"] == "no jats"

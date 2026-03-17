@@ -69,3 +69,5 @@ The CLI also appends every run to `manifest.jsonl` (with status, source provider
 - `springer_not_found`
 - `springer_jats_unavailable`
 - `springer_rate_limited`
+
+When `springer_rate_limited` occurs, the runner stops querying Springer for the remainder of that run and marks subsequent Springer-fallback records as skipped with the same reason to avoid unnecessary quota pressure.

@@ -82,7 +82,7 @@ async def process_articles(
     cache = FileCache(output_dir / ".cache") if use_cache else None
 
     downloaded_errors: List[tuple[Record, Exception, str | None]] = []
-    skipped_records: List[tuple[Record, str, str | None]] = []
+    skipped_records: List[tuple[Record, str, str | None, str | None]] = []
 
     async def _progress_callback(
         record: Record,
@@ -94,14 +94,14 @@ async def process_articles(
             reason = getattr(error, "skip_reason", None)
             source = _infer_source_from_error(error, reason if isinstance(reason, str) else None)
             if isinstance(reason, str) and reason:
-                skipped_records.append((record.copy(), reason, source))
+                skipped_records.append((record.copy(), reason, source, str(error)))
             else:
                 if isinstance(error, Exception):
                     downloaded_errors.append((record.copy(), error, source))
                 else:
                     downloaded_errors.append((record.copy(), Exception(str(error)), source))
         elif article is None:
-            skipped_records.append((record.copy(), "not_found_404", "elsevier"))
+            skipped_records.append((record.copy(), "not_found_404", "elsevier", None))
 
     stats = {"success": 0, "failed": 0, "skipped": 0}
 
@@ -198,14 +198,14 @@ async def process_articles(
         append_error_entry(output_dir, record=record, error=error, source=source)
         stats["failed"] += 1
 
-    for record, reason, source in skipped_records:
+    for record, reason, source, detail in skipped_records:
         append_manifest_entry(
             output_dir,
             record=record,
             status="skipped",
             source=source,
             files=[],
-            error=None,
+            error=detail,
             reason=reason,
             duration=0.0,
         )
