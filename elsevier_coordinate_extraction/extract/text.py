@@ -42,6 +42,7 @@ def _load_text_stylesheet() -> etree.XSLT:
 
 def extract_text_from_article(
     article: ArticleContent | bytes,
+    preserve_cross_references: bool = True,
 ) -> dict[str, str | None]:
     """Return structured text content extracted from an Elsevier article.
 
@@ -50,6 +51,9 @@ def extract_text_from_article(
     article:
         Either an :class:`ArticleContent` instance or a raw XML payload of
         ``bytes``.
+    preserve_cross_references:
+        If ``True`` then inline cross-reference text is retained in output.
+        If ``False`` then cross-reference elements are removed entirely.
 
     Raises
     ------
@@ -67,7 +71,14 @@ def extract_text_from_article(
 
     stylesheet = _load_text_stylesheet()
     try:
-        transformed = stylesheet(document)
+        transformed = stylesheet(
+            document,
+            **{
+                "preserve-crossrefs": etree.XSLT.strparam(
+                    "true" if preserve_cross_references else "false"
+                )
+            },
+        )
     except etree.XSLTApplyError as exc:
         msg = "XSLT transformation failed for article payload."
         raise TextExtractionError(msg) from exc
@@ -94,6 +105,7 @@ def save_article_text(
     directory: Path | str,
     *,
     stem: str | None = None,
+    preserve_cross_references: bool = True,
 ) -> Path:
     """Extract article text and persist it as a ``.txt`` file on disk.
 
@@ -107,6 +119,9 @@ def save_article_text(
     stem:
         Optional file-name stem to use; defaults to a slug derived from the
         article identifier metadata.
+    preserve_cross_references:
+        If ``True`` then inline cross-reference text is retained in output.
+        If ``False`` then those elements are removed entirely.
 
     Returns
     -------
@@ -114,7 +129,10 @@ def save_article_text(
         Full path to the written text file.
     """
 
-    extracted = extract_text_from_article(article)
+    extracted = extract_text_from_article(
+        article,
+        preserve_cross_references=preserve_cross_references,
+    )
     destination_dir = Path(directory)
     destination_dir.mkdir(parents=True, exist_ok=True)
     file_stem = stem or _default_stem(article, extracted)
