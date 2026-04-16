@@ -11,6 +11,7 @@
 
   <xsl:output method="xml" version="1.0" encoding="UTF-8" omit-xml-declaration="no"/>
   <xsl:strip-space elements="*"/>
+  <xsl:param name="preserve-crossrefs" select="'true'"/>
 
   <xsl:template match="/">
     <extracted-text>
@@ -131,8 +132,6 @@
       ce:caption |
       ce:legend |
       ce:label |
-      ce:cross-ref |
-      ce:cross-refs |
       ce:footnote |
       ce:floats |
       ce:inline-figure |
@@ -150,6 +149,15 @@
       sb:authors |
       sb:author
     " />
+
+  <xsl:template match="ce:cross-ref | ce:cross-refs">
+    <xsl:choose>
+      <xsl:when test="$preserve-crossrefs = 'true'">
+        <xsl:apply-templates/>
+      </xsl:when>
+      <xsl:otherwise/>
+    </xsl:choose>
+  </xsl:template>
 
   <xsl:template match="*">
     <xsl:apply-templates/>
