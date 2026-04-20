@@ -128,3 +128,9 @@ def test_extract_coordinates_from_synthetic_table() -> None:
     assert len(points) == 2
     assert points[0]["coordinates"] == [10.0, 20.0, 30.0]
     assert points[0]["space"] == "MNI"
+
+
+# pmids that should not yield coordinates
+NO_COORDINATE_PMIDS = [
+    "20083208",
+]

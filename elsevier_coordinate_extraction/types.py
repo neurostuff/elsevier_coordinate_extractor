@@ -47,6 +47,7 @@ class TableMetadata:
     legend: str | None = None
     foot: str | None = None
     raw_xml: str | None = None
+    reference_sentences: list[str] = field(default_factory=list)
 
 
 def build_article_content(

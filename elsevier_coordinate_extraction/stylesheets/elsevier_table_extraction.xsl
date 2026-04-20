@@ -16,6 +16,7 @@
   </xsl:template>
 
   <xsl:template match="ce:table">
+    <xsl:variable name="tableId" select="@id"/>
     <extracted-table>
       <table-id>
         <xsl:value-of select="@id"/>
@@ -32,6 +33,20 @@
       <table-wrap-foot>
         <xsl:value-of select="normalize-space(ce:table-foot)"/>
       </table-wrap-foot>
+      <reference-sentences>
+        <xsl:if test="$tableId">
+          <xsl:variable name="refParas" select="
+            (//ce:cross-ref[contains(concat(' ', normalize-space(@refid), ' '), concat(' ', $tableId, ' '))] |
+             //ce:cross-refs[contains(concat(' ', normalize-space(@refid), ' '), concat(' ', $tableId, ' '))])
+            /ancestor::*[self::ce:para or self::ce:simple-para][1]
+          "/>
+          <xsl:for-each select="$refParas">
+            <sentence>
+              <xsl:value-of select="normalize-space(.)"/>
+            </sentence>
+          </xsl:for-each>
+        </xsl:if>
+      </reference-sentences>
       <original-table>
         <xsl:copy-of select="."/>
       </original-table>

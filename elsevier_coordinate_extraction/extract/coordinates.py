@@ -73,6 +73,8 @@ def _build_study(article: ArticleContent) -> dict[str, Any]:
             "table_id": metadata.identifier,
             "raw_table_xml": metadata.raw_xml,
         }
+        if metadata.reference_sentences:
+            analysis_metadata["reference_sentences"] = metadata.reference_sentences
         points = [
             {
                 "coordinates": triplet,
@@ -111,9 +113,16 @@ def _heuristic_space(header_text: str, meta_text: str) -> str | None:
 
 def _metadata_text(metadata: TableMetadata) -> str:
     parts: list[str] = []
-    for value in (metadata.caption, metadata.label, metadata.legend, metadata.foot):
+    for value in (
+        metadata.caption,
+        metadata.label,
+        metadata.legend,
+        metadata.foot,
+    ):
         if value:
             parts.append(value)
+    if metadata.reference_sentences:
+        parts.extend(metadata.reference_sentences)
     raw_xml = metadata.raw_xml
     if raw_xml:
         try:
@@ -160,6 +169,36 @@ def _article_text(payload: bytes) -> str:
     return " ".join(root.xpath(".//text()"))
 
 
+def _reference_sentences(
+    root: etree._Element, table_id: str | None
+) -> list[str]:
+    if not table_id:
+        return []
+    xpath = (
+        './/*[local-name()="cross-ref" or local-name()="cross-refs"]'
+        '[contains(concat(" ", normalize-space(@refid), " "), '
+        'concat(" ", $table_id, " "))]'
+    )
+    ref_nodes = root.xpath(xpath, table_id=table_id)
+    sentences: list[str] = []
+    seen: set[int] = set()
+    for node in ref_nodes:
+        parents = node.xpath(
+            'ancestor::*[local-name()="para" or local-name()="simple-para"][1]'
+        )
+        if not parents:
+            continue
+        para = parents[0]
+        marker = id(para)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        text = " ".join(" ".join(para.itertext()).split())
+        if text:
+            sentences.append(text)
+    return sentences
+
+
 def _manual_extract_tables(payload: bytes) -> list[Tuple[TableMetadata, pd.DataFrame]]:
     parser = etree.XMLParser(remove_blank_text=True)
     try:
@@ -178,6 +217,7 @@ def _manual_extract_tables(payload: bytes) -> list[Tuple[TableMetadata, pd.DataF
             './/*[local-name()="table-foot" or local-name()="table-wrap-foot"]',
         )
         identifier = table.get("id")
+        references = _reference_sentences(root, identifier)
         df = _table_to_dataframe(table)
         if df is None or df.empty:
             continue
@@ -190,6 +230,7 @@ def _manual_extract_tables(payload: bytes) -> list[Tuple[TableMetadata, pd.DataF
             legend=legend,
             foot=foot,
             raw_xml=raw_xml,
+            reference_sentences=references,
         )
         tables.append((metadata, df))
     return tables

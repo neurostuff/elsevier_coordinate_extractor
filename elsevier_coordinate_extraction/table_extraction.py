@@ -62,6 +62,14 @@ def _build_metadata(node: etree._Element) -> TableMetadata:
         text = " ".join(element.itertext()).strip()
         return text or None
 
+    references: list[str] = []
+    ref_container = node.find("reference-sentences")
+    if ref_container is not None:
+        for sentence in ref_container.findall("sentence"):
+            text = " ".join(sentence.itertext()).strip()
+            if text:
+                references.append(text)
+
     original = node.find("original-table/*")
     raw_xml = None
     if original is not None:
@@ -73,4 +81,5 @@ def _build_metadata(node: etree._Element) -> TableMetadata:
         legend=_text("table-legend"),
         foot=_text("table-wrap-foot"),
         raw_xml=raw_xml,
+        reference_sentences=references,
     )
