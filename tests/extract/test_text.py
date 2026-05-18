@@ -127,3 +127,43 @@ def test_extract_text_invalid_payload() -> None:
 
     with pytest.raises(TextExtractionError):
         extract_text_from_article(b"<not-xml>")
+
+
+def test_extract_text_from_jats_payload() -> None:
+    payload = b"""
+    <article xmlns="http://jats.nlm.nih.gov">
+      <front>
+        <article-meta>
+          <article-id pub-id-type="doi">10.1007/jats-001</article-id>
+          <title-group>
+            <article-title>JATS Example Title</article-title>
+          </title-group>
+          <kwd-group>
+            <kwd>fmri</kwd>
+            <kwd>coordinates</kwd>
+          </kwd-group>
+          <abstract>
+            <p>Abstract sentence one.</p>
+          </abstract>
+        </article-meta>
+      </front>
+      <body>
+        <sec>
+          <p>Body sentence one.</p>
+        </sec>
+      </body>
+    </article>
+    """.strip()
+    article = build_article_content(
+        doi="10.1007/jats-001",
+        payload=payload,
+        content_type="application/xml",
+        format="xml",
+        metadata={"provider": "springer"},
+    )
+    extracted = extract_text_from_article(article)
+    assert extracted["doi"] == "10.1007/jats-001"
+    assert extracted["title"] == "JATS Example Title"
+    assert extracted["abstract"] and "Abstract sentence one." in extracted["abstract"]
+    assert extracted["body"] and "Body sentence one." in extracted["body"]
+    assert extracted["keywords"] and "fmri" in extracted["keywords"]
