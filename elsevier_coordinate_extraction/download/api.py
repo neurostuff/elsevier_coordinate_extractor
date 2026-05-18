@@ -267,11 +267,12 @@ async def _fetch_springer_metadata_record(
     doi: str,
     client: SpringerOpenAccessClient,
 ) -> dict[str, Any] | None:
+    query = _build_springer_doi_query(doi)
     try:
         data = await client.get_json(
             "/openaccess/json",
             params={
-                "q": f"doi:{doi}",
+                "q": query,
                 "s": "1",
                 "p": "1",
             },
@@ -299,6 +300,7 @@ async def _download_springer_jats(
     cache: Any | None,
     cache_namespace: str,
 ) -> ArticleContent | None:
+    query = _build_springer_doi_query(doi)
     cache_key = f"springer-jats:doi:{doi}"
     payload: bytes | None = None
     content_type = "application/xml"
@@ -321,7 +323,7 @@ async def _download_springer_jats(
                 "GET",
                 "/openaccess/jats",
                 params={
-                    "q": f"doi:{doi}",
+                    "q": query,
                     "s": "1",
                     "p": "1",
                 },
@@ -626,6 +628,12 @@ def _summarize_springer_record(record: Mapping[str, Any]) -> dict[str, Any]:
         if value:
             summary[field] = value
     return summary
+
+
+def _build_springer_doi_query(doi: str) -> str:
+    """Build a Springer query value that treats DOI characters literally."""
+    escaped = doi.strip().replace("\\", "\\\\").replace('"', '\\"')
+    return f'doi:"{escaped}"'
 
 
 def _payload_contains_springer_full_text(payload: bytes) -> bool:

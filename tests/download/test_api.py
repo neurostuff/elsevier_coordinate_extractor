@@ -16,6 +16,10 @@ from elsevier_coordinate_extraction.settings import Settings
 from elsevier_coordinate_extraction.types import ArticleContent
 
 
+def _springer_doi_query(doi: str) -> str:
+    return f'doi:"{doi}"'
+
+
 def _test_settings() -> Settings:
     """Return deterministic Settings for mock transport tests."""
 
@@ -489,7 +493,7 @@ async def test_download_falls_back_to_springer_after_elsevier_not_found() -> Non
         ) -> dict[str, object]:
             call_order.append("springer-metadata")
             assert path == "/openaccess/json"
-            assert params == {"q": f"doi:{doi}", "s": "1", "p": "1"}
+            assert params == {"q": _springer_doi_query(doi), "s": "1", "p": "1"}
             return {"records": [{"doi": doi, "title": "Springer Test"}]}
 
         async def request(
@@ -503,7 +507,7 @@ async def test_download_falls_back_to_springer_after_elsevier_not_found() -> Non
             call_order.append("springer-jats")
             assert method == "GET"
             assert path == "/openaccess/jats"
-            assert params == {"q": f"doi:{doi}", "s": "1", "p": "1"}
+            assert params == {"q": _springer_doi_query(doi), "s": "1", "p": "1"}
             assert accept == "application/xml"
             payload = b"""
             <article xmlns=\"http://jats.nlm.nih.gov\">
@@ -558,7 +562,7 @@ async def test_download_resolves_pmid_to_doi_for_springer_fallback() -> None:
             params: dict[str, str] | None = None,
         ) -> dict[str, object]:
             assert path == "/openaccess/json"
-            assert params == {"q": f"doi:{resolved_doi}", "s": "1", "p": "1"}
+            assert params == {"q": _springer_doi_query(resolved_doi), "s": "1", "p": "1"}
             return {"records": [{"doi": resolved_doi, "title": "Resolved DOI"}]}
 
         async def request(
@@ -604,6 +608,69 @@ async def test_download_resolves_pmid_to_doi_for_springer_fallback() -> None:
     assert resolver.calls == [pmid]
     assert articles[0].metadata["provider"] == "springer"
     assert articles[0].metadata["resolved_doi"] == resolved_doi
+
+
+@pytest.mark.asyncio()
+async def test_download_quotes_legacy_doi_for_springer_query() -> None:
+    doi = "10.1002/(SICI)1098-1063(1997)7:1<78::AID-HIPO8>3.0.CO;2-3"
+
+    class StubElsevierClient:
+        async def request(self, method: str, path: str, **kwargs) -> httpx.Response:
+            request = httpx.Request(method, f"https://api.elsevier.com/content{path}")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("not found", request=request, response=response)
+
+    class StubSpringerClient:
+        async def get_json(
+            self,
+            path: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> dict[str, object]:
+            assert path == "/openaccess/json"
+            assert params == {"q": _springer_doi_query(doi), "s": "1", "p": "1"}
+            return {"records": [{"doi": doi, "title": "Legacy DOI"}]}
+
+        async def request(
+            self,
+            method: str,
+            path: str,
+            *,
+            params: dict[str, str] | None = None,
+            accept: str | None = None,
+        ) -> httpx.Response:
+            assert method == "GET"
+            assert path == "/openaccess/jats"
+            assert params == {"q": _springer_doi_query(doi), "s": "1", "p": "1"}
+            assert accept == "application/xml"
+            payload = """
+            <article xmlns="http://jats.nlm.nih.gov">
+              <front><article-meta><article-id pub-id-type="doi">10.1007/s00123-001-0001-1</article-id></article-meta></front>
+              <body><sec><p>Legacy DOI text</p></sec></body>
+            </article>
+            """.encode("utf-8")
+            request = httpx.Request(method, "https://api.springernature.com/openaccess/jats")
+            return httpx.Response(
+                200,
+                request=request,
+                content=payload,
+                headers={"content-type": "application/xml"},
+            )
+
+    class StubPubMedResolver:
+        async def resolve_doi(self, pmid: str) -> str | None:
+            raise AssertionError("PMID resolver should not be called for DOI input.")
+
+    articles = await download_articles(
+        [{"doi": doi}],
+        client=StubElsevierClient(),  # type: ignore[arg-type]
+        springer_client=StubSpringerClient(),  # type: ignore[arg-type]
+        pubmed_resolver=StubPubMedResolver(),  # type: ignore[arg-type]
+        settings=_test_settings_with_springer(),
+    )
+
+    assert len(articles) == 1
+    assert articles[0].metadata["resolved_doi"] == doi
 
 
 @pytest.mark.asyncio()
