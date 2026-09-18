@@ -12,6 +12,7 @@
   <xsl:output method="xml" version="1.0" encoding="UTF-8" omit-xml-declaration="no"/>
   <xsl:strip-space elements="*"/>
   <xsl:param name="preserve-crossrefs" select="'true'"/>
+  <xsl:param name="keep-tables" select="'false'"/>
 
   <xsl:template match="/">
     <extracted-text>
@@ -127,7 +128,6 @@
       ce:acknowledgment |
       ce:bibliography |
       ce:bib-reference |
-      ce:table |
       ce:figure |
       ce:caption |
       ce:legend |
@@ -149,6 +149,26 @@
       sb:authors |
       sb:author
     " />
+
+  <!-- Tables are always stripped from the running text; when kept, a
+       placeholder is left in their place, to be replaced with the table's
+       formatted contents by `_insert_tables`. The id matches `table-id` in
+       elsevier_table_extraction.xsl's output; tables without @id fall back
+       to their rank in document order. -->
+  <xsl:template match="ce:table">
+    <xsl:if test="$keep-tables = 'true'">
+      <xsl:text>&#10;[elsevier-table-</xsl:text>
+      <xsl:choose>
+        <xsl:when test="@id">
+          <xsl:value-of select="@id"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:value-of select="count(preceding::ce:table)"/>
+        </xsl:otherwise>
+      </xsl:choose>
+      <xsl:text>]&#10;</xsl:text>
+    </xsl:if>
+  </xsl:template>
 
   <xsl:template match="ce:cross-ref | ce:cross-refs">
     <xsl:choose>

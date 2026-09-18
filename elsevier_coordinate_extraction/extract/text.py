@@ -8,9 +8,13 @@ from importlib import resources
 from pathlib import Path
 from typing import Mapping
 
+import pandas as pd
 from lxml import etree
 
-from elsevier_coordinate_extraction.types import ArticleContent
+from elsevier_coordinate_extraction.table_extraction import (
+    extract_tables_from_article,
+)
+from elsevier_coordinate_extraction.types import ArticleContent, TableMetadata
 
 __all__ = [
     "TextExtractionError",
@@ -18,6 +22,12 @@ __all__ = [
     "format_article_text",
     "save_article_text",
 ]
+
+# Left in the body by 'text_extraction.xsl' at the position of each table when
+# tables are kept. The key is the table's `@id`, or its rank among tables in
+# document order when it has none -- both sides (this module and the
+# stylesheet) count preceding ce:table elements the same way.
+_TABLE_PLACEHOLDER = re.compile(r"\[elsevier-table-([^\]]+)\]")
 
 
 class TextExtractionError(RuntimeError):
@@ -43,6 +53,7 @@ def _load_text_stylesheet() -> etree.XSLT:
 def extract_text_from_article(
     article: ArticleContent | bytes,
     preserve_cross_references: bool = True,
+    keep_tables: bool = False,
 ) -> dict[str, str | None]:
     """Return structured text content extracted from an Elsevier article.
 
@@ -54,6 +65,12 @@ def extract_text_from_article(
     preserve_cross_references:
         If ``True`` then inline cross-reference text is retained in output.
         If ``False`` then cross-reference elements are removed entirely.
+    keep_tables:
+        If ``True``, each table is inserted in the body at the position where
+        it appears in the article: its label, then its contents as
+        tab-separated values, then its footer. If ``False``, tables are left
+        out of the body (they remain available via
+        :func:`extract_tables_from_article`).
 
     Raises
     ------
@@ -76,7 +93,10 @@ def extract_text_from_article(
             **{
                 "preserve-crossrefs": etree.XSLT.strparam(
                     "true" if preserve_cross_references else "false"
-                )
+                ),
+                "keep-tables": etree.XSLT.strparam(
+                    "true" if keep_tables else "false"
+                ),
             },
         )
     except etree.XSLTApplyError as exc:
@@ -84,13 +104,16 @@ def extract_text_from_article(
         raise TextExtractionError(msg) from exc
 
     root = transformed.getroot()
+    body = _clean_block(_extract_text(root, "body"))
+    if keep_tables and body:
+        body = _insert_tables(body, payload)
     return {
         "doi": _clean_doi(_extract_text(root, "doi")),
         "pii": _clean_field(_extract_text(root, "pii")),
         "title": _clean_field(_extract_text(root, "title")),
         "keywords": _clean_keywords(_extract_text(root, "keywords")),
         "abstract": _clean_block(_extract_text(root, "abstract")),
-        "body": _clean_block(_extract_text(root, "body")),
+        "body": body,
     }
 
 
@@ -106,6 +129,7 @@ def save_article_text(
     *,
     stem: str | None = None,
     preserve_cross_references: bool = True,
+    keep_tables: bool = False,
 ) -> Path:
     """Extract article text and persist it as a ``.txt`` file on disk.
 
@@ -122,6 +146,9 @@ def save_article_text(
     preserve_cross_references:
         If ``True`` then inline cross-reference text is retained in output.
         If ``False`` then those elements are removed entirely.
+    keep_tables:
+        If ``True``, tables are inserted into the body text at the position
+        where they appear in the article. See :func:`extract_text_from_article`.
 
     Returns
     -------
@@ -132,6 +159,7 @@ def save_article_text(
     extracted = extract_text_from_article(
         article,
         preserve_cross_references=preserve_cross_references,
+        keep_tables=keep_tables,
     )
     destination_dir = Path(directory)
     destination_dir.mkdir(parents=True, exist_ok=True)
@@ -140,6 +168,45 @@ def save_article_text(
     document = _compose_text_document(extracted)
     destination.write_text(document, encoding="utf-8")
     return destination
+
+
+def _insert_tables(body: str, payload: bytes) -> str:
+    """Replace the placeholders left in `body` by the tables' contents.
+
+    Placeholders for tables that could not be parsed are removed.
+    """
+    tables = _load_tables(payload)
+    return _TABLE_PLACEHOLDER.sub(lambda match: tables.get(match.group(1), ""), body)
+
+
+def _load_tables(payload: bytes) -> dict[str, str]:
+    """Map each table's placeholder key to its formatted text.
+
+    Keyed by the table's `@id` where present, else its rank among tables in
+    document order -- matching the key `text_extraction.xsl` used for the
+    placeholder.
+    """
+    tables: dict[str, str] = {}
+    for position, (metadata, frame) in enumerate(extract_tables_from_article(payload)):
+        key = metadata.identifier or str(position)
+        try:
+            tables[key] = _format_table(metadata, frame)
+        except Exception:
+            continue
+    return tables
+
+
+def _format_table(metadata: TableMetadata, frame: pd.DataFrame) -> str:
+    """Render an extracted table as tab-separated values, with label/caption/footer.
+
+    Unlike pubget's PMC schema, `ce:caption`/`ce:label` are stripped from the
+    running text everywhere (not just inside tables), so they are included
+    here rather than assumed to already be present in the body.
+    """
+    grid = frame.to_csv(sep="\t", index=False, lineterminator="\n").strip("\n")
+    parts = [metadata.label, metadata.caption, grid, metadata.foot]
+    table_text = "\n".join(part for part in parts if part)
+    return f"{table_text}\n"
 
 
 def _extract_text(root: etree._Element, tag: str) -> str | None:
