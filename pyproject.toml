@@ -13,7 +13,7 @@ dependencies = [
   "pandas>=2.2.0",
   "numpy>=1.26.0",
   "scipy>=1.11.0",
-  "pubget @ git+https://github.com/neuroquery/pubget.git@main",
+  "pubget @ git+https://github.com/jdkent/pubget.git@enh/keep_references_option",
   "tqdm>=4.66.0",
   "socksio>=1.0.0",
 ]

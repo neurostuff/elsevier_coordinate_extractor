@@ -122,6 +122,100 @@ def test_extract_text_can_strip_cross_reference_text() -> None:
     assert ")" in extracted["body"]
 
 
+def test_extract_text_can_keep_tables() -> None:
+    """Tables can be inserted into the body at the position they appear."""
+
+    payload = b"""<?xml version='1.0' encoding='UTF-8'?>
+    <article xmlns='http://www.elsevier.com/xml/xocs/dtd'
+        xmlns:ce='http://www.elsevier.com/xml/common/dtd'
+        xmlns:dc='http://purl.org/dc/elements/1.1/'
+        xmlns:dcterms='http://purl.org/dc/terms/'
+        xmlns:ja='http://www.elsevier.com/xml/ja/dtd'>
+      <dc:title>Test Article</dc:title>
+      <ce:sections>
+        <ce:section>
+          <ce:para>Before table.</ce:para>
+          <ce:table id='tbl1'>
+            <ce:label>Table 1</ce:label>
+            <ce:caption><ce:simple-para>Peak coordinates.</ce:simple-para></ce:caption>
+            <ce:tgroup>
+              <ce:thead>
+                <ce:row><ce:entry>Region</ce:entry><ce:entry>x</ce:entry></ce:row>
+              </ce:thead>
+              <ce:tbody>
+                <ce:row><ce:entry>IFG</ce:entry><ce:entry>-42</ce:entry></ce:row>
+              </ce:tbody>
+            </ce:tgroup>
+            <ce:table-foot>Note: values in mm.</ce:table-foot>
+          </ce:table>
+          <ce:para>After table.</ce:para>
+        </ce:section>
+      </ce:sections>
+    </article>"""
+
+    article = build_article_content(
+        doi="10.1016/test",
+        payload=payload,
+        content_type="text/xml",
+        format="xml",
+        metadata={"pii": "TEST"},
+    )
+
+    extracted = extract_text_from_article(article, keep_tables=True)
+    body = extracted["body"]
+    assert body is not None
+    assert "Before table." in body
+    assert "After table." in body
+    assert "Table 1" in body
+    assert "Peak coordinates." in body
+    assert "Region\tx" in body
+    assert "IFG\t-42" in body
+    assert "Note: values in mm." in body
+    assert "[elsevier-table-" not in body
+
+
+def test_extract_text_omits_tables_by_default() -> None:
+    """Tables are left out of the body unless explicitly requested."""
+
+    payload = b"""<?xml version='1.0' encoding='UTF-8'?>
+    <article xmlns='http://www.elsevier.com/xml/xocs/dtd'
+        xmlns:ce='http://www.elsevier.com/xml/common/dtd'
+        xmlns:dc='http://purl.org/dc/elements/1.1/'
+        xmlns:dcterms='http://purl.org/dc/terms/'
+        xmlns:ja='http://www.elsevier.com/xml/ja/dtd'>
+      <dc:title>Test Article</dc:title>
+      <ce:sections>
+        <ce:section>
+          <ce:para>Before table.</ce:para>
+          <ce:table id='tbl1'>
+            <ce:label>Table 1</ce:label>
+            <ce:tgroup>
+              <ce:tbody>
+                <ce:row><ce:entry>IFG</ce:entry><ce:entry>-42</ce:entry></ce:row>
+              </ce:tbody>
+            </ce:tgroup>
+          </ce:table>
+          <ce:para>After table.</ce:para>
+        </ce:section>
+      </ce:sections>
+    </article>"""
+
+    article = build_article_content(
+        doi="10.1016/test",
+        payload=payload,
+        content_type="text/xml",
+        format="xml",
+        metadata={"pii": "TEST"},
+    )
+
+    extracted = extract_text_from_article(article)
+    body = extracted["body"]
+    assert body is not None
+    assert "Table 1" not in body
+    assert "IFG" not in body
+    assert "[elsevier-table-" not in body
+
+
 def test_extract_text_invalid_payload() -> None:
     """Invalid XML payloads should raise a text extraction error."""
 
