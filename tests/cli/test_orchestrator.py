@@ -4,8 +4,37 @@ from pathlib import Path
 import pytest
 
 from elsevier_coordinate_extraction.cli import orchestrator
+from elsevier_coordinate_extraction.settings import Settings
 from elsevier_coordinate_extraction.types import build_article_content
-from elsevier_coordinate_extraction.settings import get_settings
+
+
+class DummyClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+
+def build_settings(cache_dir: Path) -> Settings:
+    return Settings(
+        api_key="test-key",
+        base_url="https://api.elsevier.com/content",
+        timeout=30.0,
+        concurrency=1,
+        cache_dir=cache_dir,
+        user_agent="test-agent",
+        insttoken=None,
+        http_proxy=None,
+        https_proxy=None,
+        use_proxy=False,
+        max_rate_limit_wait=60.0,
+        extraction_workers=0,
+        springer_api_key=None,
+        springer_base_url="https://api.springernature.com",
+        pubmed_base_url="https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
+        ncbi_api_key=None,
+    )
 
 
 @pytest.mark.asyncio
@@ -15,19 +44,15 @@ async def test_process_articles_creates_outputs(tmp_path: Path, monkeypatch):
         payload=b"<root/>",
         content_type="application/xml",
         format="xml",
-        metadata={"identifier_lookup": {"doi": "10.1016/j.test"}},
+        metadata={
+            "identifier_lookup": {"doi": "10.1016/j.test"},
+            "provider": "elsevier",
+        },
     )
 
-    async def fake_download(records, client, cache, progress_callback):
+    async def fake_download(records, client, cache, settings, progress_callback):
         await progress_callback(records[0], article, None)
         return [article]
-
-    class DummyClient:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
 
     monkeypatch.setattr(orchestrator, "download_articles", fake_download)
     monkeypatch.setattr(
@@ -51,7 +76,7 @@ async def test_process_articles_creates_outputs(tmp_path: Path, monkeypatch):
         lambda articles: {"studyset": {"studies": []}},
     )
 
-    settings = get_settings()
+    settings = build_settings(tmp_path / ".cache")
     stats = await orchestrator.process_articles(
         [{"doi": "10.1016/j.test"}],
         tmp_path,
@@ -70,3 +95,211 @@ async def test_process_articles_creates_outputs(tmp_path: Path, monkeypatch):
     assert manifest.exists()
     data = json.loads(manifest.read_text().strip())
     assert data["status"] == "success"
+    assert data["source"] == "elsevier"
+
+
+@pytest.mark.asyncio
+async def test_process_articles_updates_download_progress(tmp_path: Path, monkeypatch):
+    article = build_article_content(
+        doi="10.1016/j.test",
+        payload=b"<root/>",
+        content_type="application/xml",
+        format="xml",
+        metadata={
+            "identifier_lookup": {"doi": "10.1016/j.test"},
+            "provider": "elsevier",
+        },
+    )
+    records = [{"doi": "10.1016/j.test"}, {"pmid": "12345678"}]
+
+    async def fake_download(records, client, cache, settings, progress_callback):
+        await progress_callback(records[0], article, None)
+        await progress_callback(records[1], None, None)
+        return [article]
+
+    class FakeTqdm:
+        def __init__(self, iterable=None, total=None, **kwargs):
+            self.iterable = iterable
+            self.total = total
+            self.updates: list[int] = []
+
+        def update(self, value=1):
+            self.updates.append(value)
+
+        def write(self, message):
+            return None
+
+        def close(self):
+            return None
+
+        def __iter__(self):
+            if self.iterable is None:
+                return iter(())
+            return iter(self.iterable)
+
+    bars = []
+
+    def fake_tqdm(*args, **kwargs):
+        iterable = args[0] if args else kwargs.pop("iterable", None)
+        bar = FakeTqdm(iterable=iterable, **kwargs)
+        bars.append(bar)
+        return bar
+
+    monkeypatch.setattr(orchestrator, "download_articles", fake_download)
+    monkeypatch.setattr(orchestrator, "tqdm", fake_tqdm)
+    monkeypatch.setattr(
+        orchestrator,
+        "ScienceDirectClient",
+        lambda settings: DummyClient(),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "extract_text_from_article",
+        lambda payload: {"title": "stub"},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "extract_tables_from_article",
+        lambda payload: [],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "extract_coordinates",
+        lambda articles: {"studyset": {"studies": []}},
+    )
+
+    settings = build_settings(tmp_path / ".cache")
+    stats = await orchestrator.process_articles(
+        records,
+        tmp_path,
+        settings=settings,
+        use_cache=False,
+    )
+
+    assert stats["skipped"] == 1
+    assert len(bars) == 2
+    assert sum(bars[0].updates) == len(records)
+    manifest = tmp_path / "manifest.jsonl"
+    entries = [json.loads(line) for line in manifest.read_text().splitlines()]
+    skipped_entries = [entry for entry in entries if entry["status"] == "skipped"]
+    assert len(skipped_entries) == 1
+    assert skipped_entries[0]["identifier"] == {"pmid": "12345678"}
+    assert skipped_entries[0]["reason"] == "not_found_404"
+    assert skipped_entries[0]["source"] == "elsevier"
+
+
+@pytest.mark.asyncio
+async def test_process_articles_continues_on_error_by_default(tmp_path: Path, monkeypatch):
+    first_article = build_article_content(
+        doi="10.1016/j.one",
+        payload=b"<root/>",
+        content_type="application/xml",
+        format="xml",
+        metadata={
+            "identifier_lookup": {"doi": "10.1016/j.one"},
+            "provider": "elsevier",
+        },
+    )
+    second_article = build_article_content(
+        doi="10.1016/j.two",
+        payload=b"<root/>",
+        content_type="application/xml",
+        format="xml",
+        metadata={
+            "identifier_lookup": {"doi": "10.1016/j.two"},
+            "provider": "elsevier",
+        },
+    )
+    records = [{"doi": "10.1016/j.one"}, {"doi": "10.1016/j.two"}]
+
+    async def fake_download(records, client, cache, settings, progress_callback):
+        await progress_callback(records[0], first_article, None)
+        await progress_callback(records[1], second_article, None)
+        return [first_article, second_article]
+
+    calls = {"count": 0}
+
+    def fake_extract_text(article):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise ValueError("failed to parse article")
+        return {"title": "stub"}
+
+    monkeypatch.setattr(orchestrator, "download_articles", fake_download)
+    monkeypatch.setattr(
+        orchestrator,
+        "ScienceDirectClient",
+        lambda settings: DummyClient(),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "extract_text_from_article",
+        fake_extract_text,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "extract_tables_from_article",
+        lambda payload: [],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "extract_coordinates",
+        lambda articles: {"studyset": {"studies": []}},
+    )
+
+    settings = build_settings(tmp_path / ".cache")
+    stats = await orchestrator.process_articles(
+        records,
+        tmp_path,
+        settings=settings,
+        use_cache=False,
+    )
+
+    assert stats["success"] == 1
+    assert stats["failed"] == 1
+    assert stats["skipped"] == 0
+
+    manifest = tmp_path / "manifest.jsonl"
+    statuses = [
+        json.loads(line)["status"]
+        for line in manifest.read_text().splitlines()
+    ]
+    assert statuses.count("success") == 1
+    assert statuses.count("failed") == 1
+
+
+@pytest.mark.asyncio
+async def test_process_articles_marks_skip_reason_from_download(tmp_path: Path, monkeypatch):
+    class SkipError(RuntimeError):
+        skip_reason = "springer_jats_unavailable"
+
+    async def fake_download(records, client, cache, settings, progress_callback):
+        await progress_callback(records[0], None, SkipError("no jats"))
+        return []
+
+    monkeypatch.setattr(orchestrator, "download_articles", fake_download)
+    monkeypatch.setattr(
+        orchestrator,
+        "ScienceDirectClient",
+        lambda settings: DummyClient(),
+    )
+
+    settings = build_settings(tmp_path / ".cache")
+    stats = await orchestrator.process_articles(
+        [{"doi": "10.1007/example"}],
+        tmp_path,
+        settings=settings,
+        use_cache=False,
+    )
+
+    assert stats["success"] == 0
+    assert stats["failed"] == 0
+    assert stats["skipped"] == 1
+
+    manifest = tmp_path / "manifest.jsonl"
+    entries = [json.loads(line) for line in manifest.read_text().splitlines()]
+    assert len(entries) == 1
+    assert entries[0]["status"] == "skipped"
+    assert entries[0]["reason"] == "springer_jats_unavailable"
+    assert entries[0]["source"] == "springer"
+    assert entries[0]["error"] == "no jats"

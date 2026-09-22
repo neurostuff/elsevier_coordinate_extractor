@@ -128,3 +128,36 @@ def test_extract_coordinates_from_synthetic_table() -> None:
     assert len(points) == 2
     assert points[0]["coordinates"] == [10.0, 20.0, 30.0]
     assert points[0]["space"] == "MNI"
+
+
+def test_extract_coordinates_from_synthetic_jats_table() -> None:
+    payload = b"""
+    <article xmlns="http://jats.nlm.nih.gov">
+      <body>
+        <table-wrap id="tbl1">
+          <label>Table 1</label>
+          <table>
+            <thead>
+              <tr><th>x</th><th>y</th><th>z</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>10</td><td>-20</td><td>30</td></tr>
+              <tr><td>-12</td><td>18</td><td>42</td></tr>
+            </tbody>
+          </table>
+          <caption><title>MNI coordinates</title></caption>
+        </table-wrap>
+      </body>
+    </article>
+    """
+    article = build_article_content(
+        doi="10.1007/jats-002",
+        payload=payload,
+        content_type="application/xml",
+        format="xml",
+        metadata={"provider": "springer"},
+    )
+    result = extract_coordinates([article])
+    points = _find_points(result)
+    assert len(points) == 2
+    assert points[0]["coordinates"] == [10.0, -20.0, 30.0]

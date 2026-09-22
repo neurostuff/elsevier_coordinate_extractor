@@ -25,7 +25,14 @@ def downloaded_articles(
     identifiers = test_dois if identifier_type == "doi" else sample_test_pmids
 
     async def _download() -> list[ArticleContent]:
-        cfg = settings.get_settings()
+        try:
+            cfg = settings.get_settings()
+        except RuntimeError as exc:
+            if "ELSEVIER_API_KEY" in str(exc):
+                pytest.skip(
+                    "ELSEVIER_API_KEY unavailable for extraction integration tests."
+                )
+            raise
         async with ScienceDirectClient(cfg) as client:
             try:
                 records = [{identifier_type: value} for value in identifiers]
@@ -39,6 +46,8 @@ def downloaded_articles(
         return list(article_list)
 
     articles = asyncio.run(_download())
+    if not articles:
+        pytest.skip("No downloadable articles available for extraction integration tests.")
     if identifier_type == "pmid":
         for identifier, article in zip(identifiers, articles):
             assert article.metadata.get("identifier") == identifier

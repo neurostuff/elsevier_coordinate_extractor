@@ -28,6 +28,9 @@ def test_get_settings_reads_environment(
     assert cfg_a.insttoken is None
     assert cfg_a.use_proxy is False
     assert cfg_a.extraction_workers == 0
+    assert cfg_a.springer_api_key is None
+    assert cfg_a.springer_base_url == "https://api.springernature.com"
+    assert cfg_a.pubmed_base_url == "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
     assert cfg_a is cfg_b
 
 
@@ -94,3 +97,21 @@ def test_max_rate_limit_wait_unlimited(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setenv("ELSEVIER_MAX_RATE_LIMIT_WAIT_SECONDS", "none")
     cfg = settings.get_settings(force_reload=True)
     assert cfg.max_rate_limit_wait is None
+
+
+def test_springer_and_pubmed_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Springer and PubMed integration settings should load from environment."""
+
+    monkeypatch.setenv("ELSEVIER_API_KEY", "unit-test-key")
+    monkeypatch.setenv("SPRINGER_API_KEY", "springer-key")
+    monkeypatch.setenv("SPRINGER_BASE_URL", "https://springer.example")
+    monkeypatch.setenv("PUBMED_BASE_URL", "https://ncbi.example/eutils")
+    monkeypatch.setenv("NCBI_API_KEY", "ncbi-key")
+    blank_env = tmp_path / "blank.env"
+    blank_env.write_text("")
+    monkeypatch.setenv("ELSEVIER_DOTENV_PATH", str(blank_env))
+    cfg = settings.get_settings(force_reload=True)
+    assert cfg.springer_api_key == "springer-key"
+    assert cfg.springer_base_url == "https://springer.example"
+    assert cfg.pubmed_base_url == "https://ncbi.example/eutils"
+    assert cfg.ncbi_api_key == "ncbi-key"
