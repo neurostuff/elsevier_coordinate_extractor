@@ -174,6 +174,52 @@ def test_extract_text_can_keep_tables() -> None:
     assert "[elsevier-table-" not in body
 
 
+def test_keep_tables_places_floated_tables_at_their_anchor() -> None:
+    """Elsevier puts tables in ce:floats, outside the body, and anchors them.
+
+    A table goes where its anchor is; one nothing anchors is appended.
+    """
+
+    payload = b"""<?xml version='1.0' encoding='UTF-8'?>
+    <article xmlns='http://www.elsevier.com/xml/xocs/dtd'
+        xmlns:ce='http://www.elsevier.com/xml/common/dtd'
+        xmlns:dc='http://purl.org/dc/elements/1.1/'
+        xmlns:ja='http://www.elsevier.com/xml/ja/dtd'>
+      <dc:title>Test Article</dc:title>
+      <ja:article>
+        <ce:floats>
+          <ce:table id='TBL1'>
+            <ce:label>Table 1</ce:label>
+            <ce:tgroup><ce:tbody>
+              <ce:row><ce:entry>IFG</ce:entry><ce:entry>-42</ce:entry></ce:row>
+            </ce:tbody></ce:tgroup>
+          </ce:table>
+          <ce:table id='TBL2'>
+            <ce:label>Table 2</ce:label>
+            <ce:tgroup><ce:tbody>
+              <ce:row><ce:entry>SPL</ce:entry><ce:entry>30</ce:entry></ce:row>
+            </ce:tbody></ce:tgroup>
+          </ce:table>
+        </ce:floats>
+        <ja:body>
+          <ce:sections>
+            <ce:section>
+              <ce:para>Before table.<ce:float-anchor refid='TBL1'/></ce:para>
+              <ce:para>After table.<ce:float-anchor refid='FIG1'/></ce:para>
+            </ce:section>
+          </ce:sections>
+        </ja:body>
+      </ja:article>
+    </article>"""
+
+    body = extract_text_from_article(payload, keep_tables=True)["body"]
+    assert body is not None
+    assert body.index("Before table.") < body.index("IFG\t-42") < body.index("After table.")
+    assert body.index("After table.") < body.index("SPL\t30")
+    assert body.count("IFG") == 1
+    assert "[elsevier-table-" not in body
+
+
 def test_extract_text_omits_tables_by_default() -> None:
     """Tables are left out of the body unless explicitly requested."""
 

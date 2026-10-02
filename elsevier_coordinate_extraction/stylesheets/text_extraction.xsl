@@ -13,6 +13,7 @@
   <xsl:strip-space elements="*"/>
   <xsl:param name="preserve-crossrefs" select="'true'"/>
   <xsl:param name="keep-tables" select="'false'"/>
+  <xsl:key name="table-by-id" match="ce:table" use="@id"/>
 
   <xsl:template match="/">
     <extracted-text>
@@ -166,6 +167,17 @@
           <xsl:value-of select="count(preceding::ce:table)"/>
         </xsl:otherwise>
       </xsl:choose>
+      <xsl:text>]&#10;</xsl:text>
+    </xsl:if>
+  </xsl:template>
+
+  <!-- Elsevier keeps tables in ce:floats, outside the body, and marks
+       where each belongs with a ce:float-anchor. The placeholder goes
+       there. -->
+  <xsl:template match="ce:float-anchor">
+    <xsl:if test="$keep-tables = 'true' and key('table-by-id', @refid)">
+      <xsl:text>&#10;[elsevier-table-</xsl:text>
+      <xsl:value-of select="@refid"/>
       <xsl:text>]&#10;</xsl:text>
     </xsl:if>
   </xsl:template>
