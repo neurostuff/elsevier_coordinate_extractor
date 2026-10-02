@@ -173,10 +173,23 @@ def save_article_text(
 def _insert_tables(body: str, payload: bytes) -> str:
     """Replace the placeholders left in `body` by the tables' contents.
 
-    Placeholders for tables that could not be parsed are removed.
+    A table goes in at its first placeholder. One with no placeholder -- a
+    float nothing anchors -- is appended, so every parsed table is in the
+    text. Placeholders for tables that could not be parsed are removed.
     """
     tables = _load_tables(payload)
-    return _TABLE_PLACEHOLDER.sub(lambda match: tables.get(match.group(1), ""), body)
+    placed: set[str] = set()
+
+    def _substitute(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key in placed:
+            return ""
+        placed.add(key)
+        return tables.get(key, "")
+
+    body = _TABLE_PLACEHOLDER.sub(_substitute, body)
+    leftover = [text for key, text in tables.items() if key not in placed]
+    return "\n".join([body.rstrip("\n") + "\n", *leftover]) if leftover else body
 
 
 def _load_tables(payload: bytes) -> dict[str, str]:
