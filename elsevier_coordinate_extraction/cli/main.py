@@ -77,10 +77,18 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip writing coordinates JSON",
     )
+    parser.set_defaults(continue_on_error=True)
     parser.add_argument(
         "--continue-on-error",
         action="store_true",
-        help="Keep going after failures",
+        dest="continue_on_error",
+        help="Keep going after failures (default)",
+    )
+    parser.add_argument(
+        "--fail-fast",
+        action="store_false",
+        dest="continue_on_error",
+        help="Stop on first failed article extraction",
     )
     parser.add_argument(
         "--max-workers",

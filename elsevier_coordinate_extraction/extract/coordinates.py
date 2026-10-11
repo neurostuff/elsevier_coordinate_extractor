@@ -12,9 +12,16 @@ from lxml import etree
 from pubget._coordinate_space import _neurosynth_guess_space
 from pubget._coordinates import _extract_coordinates_from_table
 
-from elsevier_coordinate_extraction.table_extraction import extract_tables_from_article
+from elsevier_coordinate_extraction.table_extraction import (
+    extract_tables_from_article,
+    extract_tables_generic,
+)
 from elsevier_coordinate_extraction.types import ArticleContent, TableMetadata
 from elsevier_coordinate_extraction import settings
+
+
+if not hasattr(pd.DataFrame, "applymap") and hasattr(pd.DataFrame, "map"):
+    pd.DataFrame.applymap = pd.DataFrame.map  # type: ignore[attr-defined]
 
 
 def extract_coordinates(articles: Iterable[ArticleContent]) -> dict:
@@ -24,8 +31,11 @@ def extract_coordinates(articles: Iterable[ArticleContent]) -> dict:
     if not article_list:
         return {"studyset": {"studies": []}}
 
-    cfg = settings.get_settings()
-    user_workers = cfg.extraction_workers
+    try:
+        cfg = settings.get_settings()
+    except RuntimeError:
+        cfg = None
+    user_workers = cfg.extraction_workers if cfg is not None else 0
     if user_workers <= 0:
         worker_count = min(len(article_list), max(os.cpu_count() or 1, 1))
     else:
@@ -161,38 +171,7 @@ def _article_text(payload: bytes) -> str:
 
 
 def _manual_extract_tables(payload: bytes) -> list[Tuple[TableMetadata, pd.DataFrame]]:
-    parser = etree.XMLParser(remove_blank_text=True)
-    try:
-        root = etree.fromstring(payload, parser=parser)
-    except etree.XMLSyntaxError:
-        return []
-    tables: list[Tuple[TableMetadata, pd.DataFrame]] = []
-    for table in root.xpath('.//*[local-name()="table"]'):
-        parent = table.getparent()
-        context = parent if parent is not None else table
-        label = _first_text(context, './/*[local-name()="label"]')
-        caption = _first_text(context, './/*[local-name()="caption"]')
-        legend = _first_text(context, './/*[local-name()="legend"]')
-        foot = _first_text(
-            context,
-            './/*[local-name()="table-foot" or local-name()="table-wrap-foot"]',
-        )
-        identifier = table.get("id")
-        df = _table_to_dataframe(table)
-        if df is None or df.empty:
-            continue
-        raw_element = parent if parent is not None else table
-        raw_xml = etree.tostring(raw_element, encoding="unicode")
-        metadata = TableMetadata(
-            label=label,
-            identifier=identifier,
-            caption=caption,
-            legend=legend,
-            foot=foot,
-            raw_xml=raw_xml,
-        )
-        tables.append((metadata, df))
-    return tables
+    return extract_tables_generic(payload)
 
 
 def _first_text(node: etree._Element, xpath: str) -> str | None:

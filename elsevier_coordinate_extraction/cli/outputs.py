@@ -94,8 +94,10 @@ def append_manifest_entry(
     *,
     record: Dict[str, str],
     status: str,
+    source: str | None,
     files: list[Path],
     error: str | None,
+    reason: str | None,
     duration: float,
 ) -> None:
     manifest_path = output_dir / "manifest.jsonl"
@@ -104,8 +106,10 @@ def append_manifest_entry(
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "identifier": record,
         "status": status,
+        "source": source,
         "files": [str(path.relative_to(output_dir)) for path in files],
         "error": error,
+        "reason": reason,
         "duration_seconds": round(duration, 3),
     }
     with manifest_path.open("a", encoding="utf-8") as fh:
@@ -117,11 +121,13 @@ def append_error_entry(
     *,
     record: Dict[str, str],
     error: Exception,
+    source: str | None,
 ) -> None:
     errors_path = output_dir / "errors.jsonl"
     entry = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "identifier": record,
+        "source": source,
         "error_type": type(error).__name__,
         "error_message": str(error),
     }

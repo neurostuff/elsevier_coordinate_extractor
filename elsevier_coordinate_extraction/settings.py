@@ -10,6 +10,8 @@ from typing import Final
 from dotenv import load_dotenv
 
 _DEFAULT_BASE_URL: Final[str] = "https://api.elsevier.com/content"
+_DEFAULT_SPRINGER_BASE_URL: Final[str] = "https://api.springernature.com"
+_DEFAULT_PUBMED_BASE_URL: Final[str] = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 _DEFAULT_TIMEOUT: Final[float] = 30.0
 _DEFAULT_CONCURRENCY: Final[int] = 4
 _DEFAULT_CACHE_DIR: Final[str] = ".elsevier_cache"
@@ -36,6 +38,10 @@ class Settings:
     use_proxy: bool
     max_rate_limit_wait: float | None
     extraction_workers: int
+    springer_api_key: str | None = None
+    springer_base_url: str = _DEFAULT_SPRINGER_BASE_URL
+    pubmed_base_url: str = _DEFAULT_PUBMED_BASE_URL
+    ncbi_api_key: str | None = None
 
 
 _TRUE_VALUES: Final[set[str]] = {"1", "true", "yes", "on"}
@@ -75,6 +81,10 @@ def get_settings(*, force_reload: bool = False) -> Settings:
         )
 
     base_url = os.getenv("ELSEVIER_BASE_URL", _DEFAULT_BASE_URL)
+    springer_base_url = os.getenv("SPRINGER_BASE_URL", _DEFAULT_SPRINGER_BASE_URL)
+    pubmed_base_url = os.getenv("PUBMED_BASE_URL", _DEFAULT_PUBMED_BASE_URL)
+    springer_api_key = os.getenv("SPRINGER_API_KEY")
+    ncbi_api_key = os.getenv("NCBI_API_KEY")
     timeout = float(os.getenv("ELSEVIER_TIMEOUT", _DEFAULT_TIMEOUT))
     concurrency = int(os.getenv("ELSEVIER_CONCURRENCY", _DEFAULT_CONCURRENCY))
     cache_dir_raw = os.getenv("ELSEVIER_CACHE_DIR", _DEFAULT_CACHE_DIR)
@@ -113,5 +123,9 @@ def get_settings(*, force_reload: bool = False) -> Settings:
         use_proxy=use_proxy,
         max_rate_limit_wait=max_rate_limit_wait,
         extraction_workers=int(os.getenv("ELSEVIER_EXTRACTION_WORKERS", _DEFAULT_EXTRACTION_WORKERS)),
+        springer_api_key=springer_api_key,
+        springer_base_url=springer_base_url,
+        pubmed_base_url=pubmed_base_url,
+        ncbi_api_key=ncbi_api_key,
     )
     return _CACHED_SETTINGS

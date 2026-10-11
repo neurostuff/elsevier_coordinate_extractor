@@ -14,6 +14,14 @@ from .settings import Settings
 __all__ = ["ScienceDirectClient"]
 
 
+def _http2_enabled() -> bool:
+    try:
+        import h2  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 class ScienceDirectClient:
     """Thin wrapper around httpx.AsyncClient with Elsevier defaults."""
 
@@ -96,7 +104,7 @@ class ScienceDirectClient:
             "timeout": timeout,
             "headers": headers,
             "transport": self._transport,
-            "http2": True,
+            "http2": _http2_enabled(),
         }
         if self._settings.use_proxy:
             proxy_value = self._settings.https_proxy or self._settings.http_proxy
