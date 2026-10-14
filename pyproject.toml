@@ -5,7 +5,7 @@ description = "Search, download, and extract stereotactic coordinates from Scien
 authors = [
   { name = "elsevier Coordinate Extraction Team" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
   "httpx[http2]>=0.27.0",
   "python-dotenv>=1.0.1",
@@ -13,7 +13,7 @@ dependencies = [
   "pandas>=2.2.0",
   "numpy>=1.26.0",
   "scipy>=1.11.0",
-  "pubget @ git+https://github.com/jdkent/pubget.git@main",
+  "pubget @ git+https://github.com/neuroquery/pubget.git@main",
   "tqdm>=4.66.0",
   "socksio>=1.0.0",
 ]
@@ -54,7 +54,7 @@ norecursedirs = [
 asyncio_mode = "auto"
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 100
 extend-exclude = [
   "pubget",
